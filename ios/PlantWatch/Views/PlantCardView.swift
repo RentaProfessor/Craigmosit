@@ -76,7 +76,7 @@ struct PlantCardView: View {
                     }
                 }
                 HStack(spacing: 6) {
-                    Text("\(reading.zone) · CH\(reading.channel)")
+                    Text("CH\(reading.channel)")
                     if let b = reading.battery {
                         Text("·")
                         HStack(spacing: 3) {
@@ -84,6 +84,9 @@ struct PlantCardView: View {
                                 .font(.system(size: 10))
                             Text("\(b, specifier: "%.1f")V").monospacedDigit()
                         }
+                    }
+                    if reading.physicalZoneVerified == false {
+                        Text("· zone unverified").foregroundStyle(DS.warn)
                     }
                     if let role = reading.pairRole {
                         Text("· \(role)")

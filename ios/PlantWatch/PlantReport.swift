@@ -86,14 +86,16 @@ struct Adjustment: Decodable, Hashable {
 struct Reading: Decodable, Identifiable {
     var id: String { "\(zone)-\(channel)" }
 
-    let zone:          String
-    let channel:       Int
-    let displayOrder:  Int?
-    let name:          String
-    let type:          String
-    let verified:      Bool
-    let pair:          String?
-    let pairRole:      String?
+    let zone:                  String     // gateway name (Back Yard / Side Yards)
+    let channel:               Int
+    let displayOrder:          Int?
+    let physicalZone:          String?    // physical location (Back Yard / Front Yard)
+    let physicalZoneVerified:  Bool?
+    let name:                  String
+    let type:                  String
+    let verified:              Bool
+    let pair:                  String?
+    let pairRole:              String?
 
     // Weather-adjusted band (today). What the dashboard uses for status.
     let idealLow:      Int
@@ -113,13 +115,15 @@ struct Reading: Decodable, Identifiable {
 
     enum CodingKeys: String, CodingKey {
         case zone, channel, name, type, verified, pair, moisture, battery, status, headline, advice, adjustments
-        case displayOrder = "display_order"
-        case pairRole     = "pair_role"
-        case idealLow     = "ideal_low"
-        case idealHigh    = "ideal_high"
-        case baseLow      = "base_low"
-        case baseHigh     = "base_high"
-        case needsWater   = "needs_water"
+        case displayOrder         = "display_order"
+        case physicalZone         = "physical_zone"
+        case physicalZoneVerified = "physical_zone_verified"
+        case pairRole             = "pair_role"
+        case idealLow             = "ideal_low"
+        case idealHigh            = "ideal_high"
+        case baseLow              = "base_low"
+        case baseHigh             = "base_high"
+        case needsWater           = "needs_water"
     }
 
     /// True when the weather has shifted the ideal floor away from the species base.

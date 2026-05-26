@@ -170,7 +170,7 @@
           <div class="card-emoji" aria-hidden="true">${emoji}</div>
           <div class="card-name-text">
             <div class="card-name" title="${escape(r.name)}">${escape(r.name)}${unverified}</div>
-            <div class="card-sub">${escape(r.zone)} · CH${r.channel}${battery}${r.pair_role ? ` · ${r.pair_role}` : ""}</div>
+            <div class="card-sub">CH${r.channel}${battery}${r.physical_zone_verified === false ? ` · <span class="unverified">zone unverified</span>` : ""}${r.pair_role ? ` · ${r.pair_role}` : ""}</div>
           </div>
         </div>
         <span class="badge badge--${r.status}">${escape(r.headline)}</span>
@@ -180,26 +180,55 @@
     </article>`;
   }
 
-  function groupByZone(readings) {
+  // Group by physical_zone (Back Yard / Front Yard) — what the user thinks about.
+  // Falls back to gateway 'zone' if backend doesn't provide physical_zone.
+  function groupByPhysicalZone(readings) {
     const zones = {};
-    for (const r of readings) (zones[r.zone] ??= []).push(r);
-    // Preserve the Ecowitt-app tile order if the backend provides display_order;
-    // fall back to channel sort.
+    for (const r of readings) {
+      const z = r.physical_zone || r.zone || "Other";
+      (zones[z] ??= []).push(r);
+    }
     for (const k in zones) {
-      zones[k].sort((a, b) =>
-        (a.display_order ?? a.channel) - (b.display_order ?? b.channel));
+      // Preserve Ecowitt-app tile order within each physical zone, then by name
+      zones[k].sort((a, b) => {
+        const z = (a.zone || "").localeCompare(b.zone || "");
+        if (z !== 0) return z;
+        return (a.display_order ?? a.channel) - (b.display_order ?? b.channel);
+      });
     }
     return zones;
   }
 
+  // Filter state: "all" | "Back Yard" | "Front Yard"
+  let zoneFilter = "all";
+
+  function renderFilterChips(zones) {
+    const counts = {
+      "all":        Object.values(zones).reduce((s, a) => s + a.length, 0),
+      "Back Yard":  (zones["Back Yard"]  || []).length,
+      "Front Yard": (zones["Front Yard"] || []).length,
+    };
+    const chip = (key, label) => {
+      const active = zoneFilter === key ? " filter-chip--active" : "";
+      return `<button class="filter-chip${active}" data-filter="${escape(key)}">${escape(label)} <span class="filter-count">${counts[key] ?? 0}</span></button>`;
+    };
+    return `<div class="filter-row">
+      ${chip("all",        "All")}
+      ${chip("Back Yard",  "Back Yard")}
+      ${chip("Front Yard", "Front Yard")}
+    </div>`;
+  }
+
   function renderReport(data) {
     const main = $("main");
-    const zones = groupByZone(data.readings);
-    const order = ["Back Yard", "Side Yards"];
+    const zones = groupByPhysicalZone(data.readings);
+    const order = ["Back Yard", "Front Yard"];
 
-    let html = renderHero(data);
+    let html = renderHero(data) + renderFilterChips(zones);
+
     for (const z of order) {
       if (!zones[z]) continue;
+      if (zoneFilter !== "all" && zoneFilter !== z) continue;
       const cnt = zones[z].length;
       html += `
         <section class="zone">
@@ -214,6 +243,14 @@
       html += `<div class="pair-note fade-in"><div><strong>${escape(k)} probe pair</strong> · ${escape(note)}</div></div>`;
     }
     main.innerHTML = html;
+
+    // Wire up filter buttons
+    main.querySelectorAll(".filter-chip").forEach(btn => {
+      btn.addEventListener("click", () => {
+        zoneFilter = btn.dataset.filter;
+        renderReport(data);
+      });
+    });
   }
 
   function renderSetup(data) {

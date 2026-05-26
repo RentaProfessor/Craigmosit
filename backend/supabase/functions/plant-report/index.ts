@@ -1,107 +1,105 @@
-// PlantWatch edge function v10 — weather-adjusted ideal ranges.
+// PlantWatch edge function v11 — weather-narrative advice.
 //
-// The plant's static low/high are the BASE band (research-backed for the
-// species). The actual "ideal range right now" SHIFTS based on the next
-// 2 days of weather, weighted by the plant's species traits:
+// Every advice line is built from 4 parts so the user sees BOTH what today
+// + tomorrow's weather actually is AND what it means for THIS species:
 //
-//   • Hot day today/tomorrow + heat-sensitive plant → floor lifts more
-//   • Hot day + drought-tolerant plant → floor barely moves
-//   • Rain in next 2 days → floor drops (no need to pre-water)
-//   • Cool + humid marine layer → floor drops slightly
-//   • Very dry air (<15% RH) → floor lifts for ALL plants somewhat
+//   1. ACTION verb       (Deep-water / Water / Top off / In range / Hold off)
+//   2. WEATHER NARRATION ("Today's 91°F + 12% RH and tomorrow drops to 73°F")
+//   3. IMPACT FOR SPECIES("…will spike citrus transpiration")
+//   4. NUMERIC POINTER   ("at 38% you're 7% below the adjusted 45% floor")
 //
-// Advice explains BOTH the species reason AND the weather reason, so
-// the user understands why "35% is fine for rosemary but VERY DRY for citrus."
+// The species citation / educational note lives in a separate field
+// (species_note) so the actionable line stays short.
 
 const CORS = {"Access-Control-Allow-Origin":"*","Access-Control-Allow-Headers":"authorization, x-client-info, apikey, content-type","Access-Control-Allow-Methods":"GET, OPTIONS"};
 
-// ─── Research-backed care profiles (UC IPM, UC ANR, CA Avocado Comm.) ────
+// ─── Care profiles ────────────────────────────────────────────────────
 const profiles = {
   citrus: {
-    low: 40, high: 60, dries: false, dt: false, heat: true,
-    species: "citrus",
+    low: 40, high: 60, dries: false, dt: false, heat: true, species: "citrus",
     why: "Citrus needs consistent moisture (4–6\"/month in summer per UC IPM). Stress = small, sunburned fruit; over-water = root rot.",
+    name_for_advice: "citrus",
   },
   avocado: {
-    low: 45, high: 65, dries: false, dt: false, heat: true,
-    species: "avocado",
-    why: "Avocados use ~2\"/week in summer and have shallow, sensitive roots (CA Avocado Comm.). They hate drought AND wet feet equally — tightest band of any plant here.",
+    low: 45, high: 65, dries: false, dt: false, heat: true, species: "avocado",
+    why: "Avocados use ~2\"/week in summer and have shallow, sensitive roots (CA Avocado Comm.). They hate drought AND wet feet equally.",
+    name_for_advice: "avocados",
   },
   camellia: {
-    low: 35, high: 50, dries: false, dt: false, heat: true,
-    species: "camellia",
+    low: 35, high: 50, dries: false, dt: false, heat: true, species: "camellia",
     why: "Camellias are more often killed by over-watering than under (UC MG). Need moderate, even moisture and protection from hot afternoon sun.",
+    name_for_advice: "camellias",
   },
   rosemary: {
-    low: 18, high: 38, dries: true, dt: true, heat: false,
-    species: "rosemary",
-    why: "Rosemary is Mediterranean and drought-adapted — UC MG: \"no summer water required once established.\" Wet roots kill it; drying out is what it wants.",
+    low: 18, high: 38, dries: true, dt: true, heat: false, species: "rosemary",
+    why: "Rosemary is Mediterranean and drought-adapted — UC MG: \"no summer water required once established.\" Wet roots kill it.",
+    name_for_advice: "rosemary",
   },
   westringia: {
-    low: 20, high: 40, dries: true, dt: true, heat: false,
-    species: "westringia",
-    why: "Westringia is Australian coast rosemary — drought-tolerant; tolerates wind and salt. Appreciates occasional summer water in inland heat.",
+    low: 20, high: 40, dries: true, dt: true, heat: false, species: "westringia",
+    why: "Westringia is Australian coast rosemary — drought-tolerant; tolerates wind and salt.",
+    name_for_advice: "westringia",
   },
   lavender: {
-    low: 22, high: 40, dries: true, dt: true, heat: false,
-    species: "lavender",
+    low: 22, high: 40, dries: true, dt: true, heat: false, species: "lavender",
     why: "Lavender is Mediterranean; drought-tolerant but needs adequate moisture during growth (UC MG). Excellent drainage non-negotiable.",
+    name_for_advice: "lavender",
   },
   bay_laurel: {
-    low: 22, high: 42, dries: true, dt: true, heat: false,
-    species: "bay-laurel",
+    low: 22, high: 42, dries: true, dt: true, heat: false, species: "bay-laurel",
     why: "Established (2+ yr) bay laurel adapts to low water but still needs irrigation in extended dry spells.",
+    name_for_advice: "bay laurel",
   },
   star_jasmine: {
-    low: 32, high: 52, dries: false, dt: false, heat: true,
-    species: "star-jasmine",
-    why: "Established star jasmine needs only modest irrigation; bumps up in extreme heat (UC IPM). Well-drained soil only.",
+    low: 32, high: 52, dries: false, dt: false, heat: true, species: "star-jasmine",
+    why: "Established star jasmine needs modest irrigation; bumps in extreme heat (UC IPM). Well-drained soil only.",
+    name_for_advice: "star jasmine",
   },
   boxwood: {
-    low: 28, high: 50, dries: false, dt: true, heat: false,
-    species: "boxwood",
+    low: 28, high: 50, dries: false, dt: true, heat: false, species: "boxwood",
     why: "Boxwood prefers slow deep watering over frequent shallow. Drip only — overhead spreads boxwood blight.",
+    name_for_advice: "boxwood",
   },
   unknown: {
-    low: 25, high: 45, dries: false, dt: true, heat: false,
-    species: "unknown",
+    low: 25, high: 45, dries: false, dt: true, heat: false, species: "unknown",
     why: "Species not yet confirmed; treated as a generic moderate-water shrub.",
+    name_for_advice: "this plant",
   },
 };
 
-// ─── PLANT MAP (locked to Ecowitt screenshots May 25 2026) ─────────────
 const PLANTS = [
-  {zone:"Back Yard",ch:4, display:1,  name:"Cook Center Hill",         p:"unknown",     verified:false},
-  {zone:"Back Yard",ch:1, display:2,  name:"Camelia",                  p:"camellia",    verified:false},
-  {zone:"Back Yard",ch:2, display:3,  name:"Cook Center Rosemary",     p:"rosemary",    verified:true},
-  {zone:"Back Yard",ch:9, display:4,  name:"Pool Hill Westringia",     p:"westringia",  verified:false},
-  {zone:"Back Yard",ch:3, display:5,  name:"Front Yard Lavender",      p:"lavender",    verified:false},
-  {zone:"Back Yard",ch:12,display:6,  name:"Small Grapefruit Tree",    p:"citrus",      verified:false},
-  {zone:"Back Yard",ch:11,display:7,  name:"Cara Cara",                p:"citrus",      verified:false},
-  {zone:"Back Yard",ch:10,display:8,  name:"Naval Orange",             p:"citrus",      verified:false},
-  {zone:"Back Yard",ch:5, display:9,  name:"Cook Center Star Jasmine", p:"star_jasmine",verified:false},
-  {zone:"Back Yard",ch:16,display:10, name:"Large Tangerine",          p:"citrus",      verified:true},
-  {zone:"Back Yard",ch:13,display:11, name:"Mandarin",                 p:"citrus",      verified:false},
-  {zone:"Back Yard",ch:6, display:12, name:"Driveway Boxwood",         p:"boxwood",     verified:false},
-  {zone:"Back Yard",ch:7, display:13, name:"Bay Laurel Behind Spit",   p:"bay_laurel",  verified:true},
-  {zone:"Back Yard",ch:14,display:14, name:"Small Avocado",            p:"avocado",     verified:false},
-  {zone:"Back Yard",ch:8, display:15, name:"Westringia Office",        p:"westringia",  verified:true},
-  {zone:"Back Yard",ch:15,display:16, name:"Avocado Shallow",          p:"avocado",     verified:false},
-  {zone:"Side Yards",ch:1,display:1, name:"Camelia",                   p:"camellia",    verified:true},
-  {zone:"Side Yards",ch:2,display:2, name:"Cook Center Rosemary",      p:"rosemary",    verified:true},
-  {zone:"Side Yards",ch:5,display:3, name:"Cook Center Star Jasmine",  p:"star_jasmine",verified:true},
-  {zone:"Side Yards",ch:4,display:4, name:"Cook Center Hill",          p:"unknown",     verified:true},
-  {zone:"Side Yards",ch:7,display:5, name:"Bay Laurel Behind Spit",    p:"bay_laurel",  verified:true},
-  {zone:"Side Yards",ch:3,display:6, name:"Front Yard Lavender",       p:"lavender",    verified:false},
-  {zone:"Side Yards",ch:6,display:7, name:"Driveway Boxwood",          p:"boxwood",     verified:true},
-  {zone:"Side Yards",ch:8,display:8, name:"Westringia Office",         p:"westringia",  verified:false},
+  {zone:"Back Yard",ch:4, display:1,  name:"Cook Center Hill",         p:"unknown",     verified:false, physical:"Back Yard", physical_verified:false},
+  {zone:"Back Yard",ch:1, display:2,  name:"Camelia",                  p:"camellia",    verified:false, physical:"Back Yard", physical_verified:false},
+  {zone:"Back Yard",ch:2, display:3,  name:"Cook Center Rosemary",     p:"rosemary",    verified:true, physical:"Back Yard", physical_verified:false},
+  {zone:"Back Yard",ch:9, display:4,  name:"Pool Hill Westringia",     p:"westringia",  verified:false, physical:"Back Yard", physical_verified:false},
+  {zone:"Back Yard",ch:3, display:5,  name:"Front Yard Lavender",      p:"lavender",    verified:false, physical:"Back Yard", physical_verified:false},
+  {zone:"Back Yard",ch:12,display:6,  name:"Small Grapefruit Tree",    p:"citrus",      verified:false, physical:"Back Yard", physical_verified:false},
+  {zone:"Back Yard",ch:11,display:7,  name:"Cara Cara",                p:"citrus",      verified:false, physical:"Back Yard", physical_verified:false},
+  {zone:"Back Yard",ch:10,display:8,  name:"Naval Orange",             p:"citrus",      verified:false, physical:"Back Yard", physical_verified:false},
+  {zone:"Back Yard",ch:5, display:9,  name:"Cook Center Star Jasmine", p:"star_jasmine",verified:false, physical:"Back Yard", physical_verified:false},
+  {zone:"Back Yard",ch:16,display:10, name:"Large Tangerine",          p:"citrus",      verified:true, physical:"Back Yard", physical_verified:false},
+  {zone:"Back Yard",ch:13,display:11, name:"Mandarin",                 p:"citrus",      verified:false, physical:"Back Yard", physical_verified:false},
+  {zone:"Back Yard",ch:6, display:12, name:"Driveway Boxwood",         p:"boxwood",     verified:false, physical:"Back Yard", physical_verified:false},
+  {zone:"Back Yard",ch:7, display:13, name:"Bay Laurel Behind Spit",   p:"bay_laurel",  verified:true, physical:"Back Yard", physical_verified:false},
+  {zone:"Back Yard",ch:14,display:14, name:"Small Avocado",            p:"avocado",     verified:false, physical:"Back Yard", physical_verified:false},
+  {zone:"Back Yard",ch:8, display:15, name:"Westringia Office",        p:"westringia",  verified:true, physical:"Back Yard", physical_verified:false},
+  {zone:"Back Yard",ch:15,display:16, name:"Avocado Shallow",          p:"avocado",     verified:false, physical:"Back Yard", physical_verified:false},
+  // SIDE YARDS gateway — labels confirmed from Ecowitt app screenshot (Tue May 26 3:56 PM)
+  // physical_zone confirmed via user (Camelia + Cook Center + Bay Laurel Behind Spit → Back Yard; Lavender Front Yard / Boxwood Driveway / Westringia Office → Front Yard)
+  {zone:"Side Yards",ch:1,display:1, name:"Camelia",                          p:"camellia",    verified:true, physical:"Back Yard",  physical_verified:true},
+  {zone:"Side Yards",ch:2,display:2, name:"Rosemary Cook Center Floor",       p:"rosemary",    verified:true, physical:"Back Yard",  physical_verified:true},
+  {zone:"Side Yards",ch:5,display:3, name:"Star Jasmine Cook Center Floor",   p:"star_jasmine",verified:true, physical:"Back Yard",  physical_verified:true},
+  {zone:"Side Yards",ch:4,display:4, name:"Rosemary Cook Center Hill",        p:"rosemary",    verified:true, physical:"Back Yard",  physical_verified:true},
+  {zone:"Side Yards",ch:7,display:5, name:"Bay Laurel Behind Spit",           p:"bay_laurel",  verified:true, physical:"Back Yard",  physical_verified:true},
+  {zone:"Side Yards",ch:3,display:6, name:"Lavender Front Yard",              p:"lavender",    verified:true, physical:"Front Yard", physical_verified:true},
+  {zone:"Side Yards",ch:6,display:7, name:"Boxwood Driveway",                 p:"boxwood",     verified:true, physical:"Front Yard", physical_verified:true},
+  {zone:"Side Yards",ch:8,display:8, name:"Westringia Office",                p:"westringia",  verified:true, physical:"Front Yard", physical_verified:true},
 ];
 
 const num = (x) => { const n = parseFloat(x); return isFinite(n) ? n : null; };
 const getEnv = (k) => Deno.env.get(k) ?? "";
 const cToF = (c) => c * 9/5 + 32;
 const mmToIn = (mm) => mm / 25.4;
-const fmtIn = (mm) => { const i = mmToIn(mm); return i < 0.1 ? "<0.1\"" : i.toFixed(1) + "\""; };
 
 async function getGw(mac) {
   const url = `https://api.ecowitt.net/api/v3/device/real_time?application_key=${getEnv("ECOWITT_APP_KEY")}&api_key=${getEnv("ECOWITT_API_KEY")}&mac=${encodeURIComponent(mac)}&call_back=all`;
@@ -119,136 +117,164 @@ async function getWx() {
   } catch(e) { return null; }
 }
 
-// ───── The core: adjust each plant's ideal band based on the
-// next 2 days' weather, weighted by species. ─────
+// ─── Range adjustment (v10 logic) ─────────────────────────────────────
 function adjustRange(p, wx) {
   const adjustments = [];
   let lowDelta = 0;
-  let highDelta = 0;
-
-  // Worst-case max temp over today + tomorrow drives the heat factor
   const maxNext2F = Math.max(wx.todayHighF ?? 0, wx.tomorrowHighF ?? 0);
-  const heatTrigger = p.heat ? 82 : 92;   // heat-sensitive triggers earlier
-  const heatScale   = p.heat ? 0.7 : 0.25; // and reacts more strongly
+  const heatTrigger = p.heat ? 82 : 92;
+  const heatScale   = p.heat ? 0.7 : 0.25;
 
   if (maxNext2F >= heatTrigger) {
-    const heatExcess = Math.min(maxNext2F - heatTrigger, 15);  // cap at +15°F
-    const bump = Math.round(heatExcess * heatScale);
+    const excess = Math.min(maxNext2F - heatTrigger, 15);
+    const bump = Math.round(excess * heatScale);
     if (bump > 0) {
       lowDelta += bump;
-      const day = (wx.todayHighF ?? 0) >= (wx.tomorrowHighF ?? 0) ? "today" : "tomorrow";
-      adjustments.push({
-        delta: `+${bump}%`,
-        reason: `${Math.round(maxNext2F)}°F ${day}` + (p.heat ? " (heat-sensitive species)" : ""),
-      });
+      const when = (wx.todayHighF ?? 0) >= (wx.tomorrowHighF ?? 0) ? "today" : "tomorrow";
+      adjustments.push({delta:`+${bump}%`, reason:`${Math.round(maxNext2F)}°F ${when}`+(p.heat?" (heat-sensitive)":"")});
     }
   }
-
-  // Arid air (very low RH) pulls moisture out faster
   const minRH = Math.min(wx.todayMinRH ?? 100, wx.tomorrowMinRH ?? 100);
   if (minRH < 15) {
     const bump = p.heat ? 4 : 2;
     lowDelta += bump;
-    adjustments.push({ delta: `+${bump}%`, reason: `very dry air (${Math.round(minRH)}% RH)` });
+    adjustments.push({delta:`+${bump}%`, reason:`very dry air (${Math.round(minRH)}% RH)`});
   } else if (minRH < 25 && p.heat) {
     lowDelta += 2;
-    adjustments.push({ delta: `+2%`, reason: `dry air (${Math.round(minRH)}% RH)` });
+    adjustments.push({delta:"+2%", reason:`dry air (${Math.round(minRH)}% RH)`});
   }
-
-  // Rain coming → no need to water, pull floor down
   const rainNext2In = ((wx.todayRainIn ?? 0) + (wx.tomorrowRainIn ?? 0));
   if (rainNext2In >= 0.3) {
     const drop = p.dt ? 3 : 6;
     lowDelta -= drop;
-    adjustments.push({ delta: `−${drop}%`, reason: `${rainNext2In.toFixed(1)}" of rain expected` });
+    adjustments.push({delta:`−${drop}%`, reason:`${rainNext2In.toFixed(1)}" rain expected`});
   } else if (rainNext2In >= 0.1) {
     lowDelta -= 2;
-    adjustments.push({ delta: `−2%`, reason: `~${rainNext2In.toFixed(1)}" of rain expected` });
+    adjustments.push({delta:"−2%", reason:`~${rainNext2In.toFixed(1)}" rain expected`});
   }
-
-  // Marine layer relief (cool + humid today)
   if ((wx.todayHighF ?? 100) < 70 && (wx.todayMinRH ?? 0) >= 50) {
     lowDelta -= 2;
-    adjustments.push({ delta: `−2%`, reason: `marine layer (cool & humid)` });
+    adjustments.push({delta:"−2%", reason:"marine layer (cool & humid)"});
   }
-
-  // Cool spell with no heat = no reason to water aggressively
-  if (maxNext2F > 0 && maxNext2F < 70 && !p.heat) {
-    lowDelta -= 1;
-  }
+  if (maxNext2F > 0 && maxNext2F < 70 && !p.heat) lowDelta -= 1;
 
   return {
-    base_low: p.low,
-    base_high: p.high,
+    base_low: p.low, base_high: p.high,
     adjusted_low: Math.max(5, Math.min(70, p.low + lowDelta)),
-    adjusted_high: Math.max(20, Math.min(90, p.high + highDelta)),
+    adjusted_high: Math.max(20, Math.min(90, p.high + 0)),
     adjustments,
   };
 }
 
-// Build advice that names BOTH the species reason and the weather reason
+// ─── WEATHER NARRATION ────────────────────────────────────────────────
+// Produces a short, plain-English description of today + tomorrow that
+// the advice prepends. Always present, never generic.
+function weatherNarration(wx) {
+  const t  = wx.todayHighF, tm = wx.tomorrowHighF;
+  const rh = wx.todayMinRH, rhm = wx.tomorrowMinRH;
+  const r1 = wx.todayRainIn ?? 0, r2 = wx.tomorrowRainIn ?? 0;
+  const rainSum = r1 + r2;
+  const max = Math.max(t ?? 0, tm ?? 0);
+  if (t === null || tm === null) return "Forecast unavailable";
+
+  // Rain dominates
+  if (rainSum >= 0.3) return `${rainSum.toFixed(1)}" of rain expected over today + tomorrow (${Math.round(t)}°F → ${Math.round(tm)}°F)`;
+  if (rainSum >= 0.1) return `Light rain (~${rainSum.toFixed(1)}") expected, ${Math.round(t)}°F today → ${Math.round(tm)}°F tomorrow`;
+
+  // Severe / hot
+  if (max >= 95) {
+    const when = (t ?? 0) >= (tm ?? 0) ? "today" : "tomorrow";
+    return `Severe heat — ${Math.round(max)}°F ${when} with ${Math.round(Math.min(rh ?? 100, rhm ?? 100))}% RH`;
+  }
+  if (max >= 85) {
+    const when = (t ?? 0) >= (tm ?? 0) ? "today" : "tomorrow";
+    return `Hot ${when} (${Math.round(max)}°F, ${Math.round(Math.min(rh ?? 100, rhm ?? 100))}% RH)`;
+  }
+  if (max >= 78) return `Warming to ${Math.round(max)}°F (today ${Math.round(t)}°F → tomorrow ${Math.round(tm)}°F)`;
+
+  // Cool marine layer
+  if ((t ?? 100) < 70 && (rh ?? 0) >= 50) return `Marine layer — ${Math.round(t)}°F today + ${Math.round(rh)}% RH, ${Math.round(tm)}°F tomorrow`;
+
+  // Mild / default
+  return `Mild — ${Math.round(t)}°F today and ${Math.round(tm)}°F tomorrow`;
+}
+
+// Plant-specific impact statement based on conditions
+function impactForPlant(p, wx) {
+  const max = Math.max(wx.todayHighF ?? 0, wx.tomorrowHighF ?? 0);
+  const rh  = Math.min(wx.todayMinRH ?? 100, wx.tomorrowMinRH ?? 100);
+  const rain = (wx.todayRainIn ?? 0) + (wx.tomorrowRainIn ?? 0);
+  const sp = p.name_for_advice;
+
+  if (rain >= 0.3) return p.dries ? `more than ${sp} needs` : `should largely cover ${sp}'s 48h need`;
+  if (rain >= 0.1) return p.dt ? `extra moisture ${sp} won't really need` : `a small contribution to ${sp}'s need`;
+  if (max >= 95) return p.heat ? `will sharply accelerate ${sp} transpiration` : `${sp} will handle this thanks to its drought tolerance`;
+  if (max >= 85) return p.heat ? `will noticeably raise ${sp} water demand` : `${sp} will be fine — it's adapted to this`;
+  if (max >= 78) return p.heat ? `slightly above average for ${sp}` : `well within ${sp}'s comfort zone`;
+  if ((wx.todayHighF ?? 100) < 70 && (wx.todayMinRH ?? 0) >= 50) {
+    return p.heat ? `minimal water loss for ${sp}` : `${sp} loves these conditions`;
+  }
+  return p.heat ? `modest water loss for ${sp}` : `${sp} is at no risk in mild weather`;
+}
+
+// ─── Build full advice ────────────────────────────────────────────────
 function advise(plant, moisture, wx) {
   const p = profiles[plant.p];
   const range = adjustRange(p, wx);
-  const adjustedFloor = range.adjusted_low;
-  const adjustedCeil  = range.adjusted_high;
+  const adjLow = range.adjusted_low;
+  const adjCeil = range.adjusted_high;
+  const narr   = weatherNarration(wx);
+  const impact = impactForPlant(p, wx);
 
-  // Build the "why we lifted / lowered the floor" string
-  let weatherReason = "";
-  if (range.adjustments.length) {
-    const parts = range.adjustments.map(a => `${a.delta} for ${a.reason}`);
-    if (range.adjusted_low !== range.base_low) {
-      weatherReason = ` Floor moved from ${range.base_low}% → ${adjustedFloor}% (${parts.join("; ")}).`;
-    } else {
-      weatherReason = ` Conditions: ${parts.map(p => p.replace(/^[+−][\d]+% for /, "")).join("; ")}.`;
-    }
+  // Range moved note for the advice tail
+  let moveNote = "";
+  if (range.adjusted_low !== range.base_low) {
+    const sign = range.adjusted_low > range.base_low ? "lifted" : "lowered";
+    moveNote = ` Floor ${sign} from ${range.base_low}% to ${adjLow}%.`;
   }
 
-  // STATUS using the adjusted range
-  if (moisture < adjustedFloor) {
-    const gap = adjustedFloor - moisture;
+  if (moisture < adjLow) {
+    const gap = adjLow - moisture;
     const veryDry = gap >= 10 || (p.dt && gap >= 15);
     let action;
     if (gap >= 8)      action = "Deep-water today";
     else if (gap >= 4) action = "Water today";
     else               action = "Water lightly today";
+    const pointer = `At ${Math.round(moisture)}% you're ${Math.round(gap)}% below the ${adjLow}% floor.`;
     return {
       status: veryDry ? "very_dry" : "dry",
       headline: veryDry ? "VERY DRY" : "Dry",
-      advice: `${action}. ${p.why}${weatherReason}`,
+      advice: `${action}. ${narr} — ${impact}. ${pointer}${moveNote}`,
       needsWater: true,
       range,
     };
   }
-  if (moisture > adjustedCeil) {
-    const driesNote = p.dries
-      ? "This species likes drying between waterings, so this is mostly a watch."
-      : "Watch for root rot if it stays high.";
+  if (moisture > adjCeil) {
+    const over = Math.round(moisture - adjCeil);
+    const dryNote = p.dries ? "this species likes drying between waterings, so this is mostly a watch" : "watch for root rot if it stays high";
     return {
       status: "too_wet", headline: "Too wet",
-      advice: `Hold off — let it dry toward ${adjustedCeil}%. ${p.why} ${driesNote}${weatherReason}`,
+      advice: `Hold off. ${narr} — ${impact}. At ${Math.round(moisture)}% you're ${over}% above the ${adjCeil}% ceiling — ${dryNote}.${moveNote}`,
       needsWater: false,
       range,
     };
   }
 
-  // In range — but is there forecast pressure?
+  // In range
   const heatLooming = ((wx.todayHighF ?? 0) >= 85) || ((wx.tomorrowHighF ?? 0) >= 85);
-  if (heatLooming && p.heat) {
-    const buffer = moisture - adjustedFloor;
-    if (buffer < 5) {
-      return {
-        status: "good_hot_warning",
-        headline: `Tight before heat`,
-        advice: `Within range now but only ${Math.round(buffer)}% above the adjusted floor (${adjustedFloor}%). ${p.why}${weatherReason} Top it off today.`,
-        needsWater: false,
-        range,
-      };
-    }
+  const buffer = moisture - adjLow;
+  if (heatLooming && p.heat && buffer < 5) {
+    return {
+      status: "good_hot_warning",
+      headline: "Tight before heat",
+      advice: `Top off today. ${narr} — ${impact}. At ${Math.round(moisture)}% you have only ${Math.round(buffer)}% buffer above the ${adjLow}% floor.${moveNote}`,
+      needsWater: false,
+      range,
+    };
   }
   return {
     status: "good", headline: "Good",
-    advice: `In range. ${p.why}${weatherReason}`,
+    advice: `In range — no action. ${narr} — ${impact}. At ${Math.round(moisture)}% you're comfortably inside the ${adjLow}–${adjCeil}% band.${moveNote}`,
     needsWater: false,
     range,
   };
@@ -278,7 +304,6 @@ Deno.serve(async (req) => {
     const todayMinRH    = humMin[0] ?? null;
     const tomorrowMinRH = humMin[1] ?? null;
 
-    // Peak-day tracking (informational only — 3 days drives advice)
     const peakIdx = (arr, n) => {
       let best=-Infinity, idx=-1;
       for (let i=0;i<Math.min(n,arr.length);i++){ if (arr[i]!==null && arr[i]>best){best=arr[i];idx=i;} }
@@ -315,21 +340,25 @@ Deno.serve(async (req) => {
           pair:null, pair_role:null,
           base_low:p.low, base_high:p.high, ideal_low:p.low, ideal_high:p.high,
           adjustments:[], moisture:null, battery,
-          status:"no_reading", headline:"No reading", advice:"Check the sensor.", needs_water:false,
-          species_note:p.why,
+          status:"no_reading", headline:"No reading",
+          advice:"Sensor isn't reporting — check the battery / placement.",
+          species_note: p.why, needs_water:false,
         };
       }
       const a = advise(plant, moisture, wxCtx);
       return {
         zone:plant.zone, channel:plant.ch, display_order:plant.display,
+        physical_zone:plant.physical, physical_zone_verified:plant.physical_verified,
         name:plant.name, species:p.species, type:p.species, verified:plant.verified,
         pair:null, pair_role:null,
         base_low:a.range.base_low, base_high:a.range.base_high,
         ideal_low:a.range.adjusted_low, ideal_high:a.range.adjusted_high,
         adjustments:a.range.adjustments,
         moisture, battery,
-        status:a.status, headline:a.headline, advice:a.advice, needs_water:a.needsWater,
-        species_note:p.why,
+        status:a.status, headline:a.headline,
+        advice:a.advice,
+        species_note: p.why,        // citation / educational text kept separate
+        needs_water:a.needsWater,
       };
     });
 
@@ -372,7 +401,7 @@ Deno.serve(async (req) => {
         heatwave_coming:     p3.value !== null && cToF(p3.value) >= 88,
         severe_heat_coming:  p3.value !== null && cToF(p3.value) >= 95,
         forecast_horizon_days: 3,
-        available: todayHighC !== null || (todayRainMm ?? 0) > 0,
+        available: todayHighC !== null,
       },
       counts, pair_notes:{}, readings
     }), {status:200, headers:{...CORS, "Content-Type":"application/json", "Cache-Control":"no-store"}});

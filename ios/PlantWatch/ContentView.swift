@@ -1,8 +1,17 @@
 import SwiftUI
 
+/// Physical-zone filter applied on the dashboard.
+enum ZoneFilter: String, CaseIterable, Identifiable {
+    case all = "All"
+    case backYard  = "Back Yard"
+    case frontYard = "Front Yard"
+    var id: String { rawValue }
+}
+
 struct ContentView: View {
     @StateObject private var svc = PlantReportService()
     @State private var nowTick = Date()
+    @State private var filter: ZoneFilter = .all
     private let tickTimer = Timer.publish(every: 30, on: .main, in: .common).autoconnect()
 
     var body: some View {
@@ -12,7 +21,7 @@ struct ContentView: View {
 
                 Group {
                     if let report = svc.report {
-                        ReportScrollView(report: report, lastLoaded: svc.lastLoaded, nowTick: nowTick)
+                        ReportScrollView(report: report, lastLoaded: svc.lastLoaded, nowTick: nowTick, filter: $filter)
                     } else if svc.loading {
                         LoadingView()
                     } else if let err = svc.error {
@@ -24,7 +33,7 @@ struct ContentView: View {
                     }
                 }
             }
-            .navigationTitle("PlantWatch")
+            .navigationTitle("Craig PlantWatch")
             .navigationBarTitleDisplayMode(.large)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
@@ -49,16 +58,27 @@ private struct ReportScrollView: View {
     let report: PlantReport
     let lastLoaded: Date?
     let nowTick: Date
+    @Binding var filter: ZoneFilter
 
+    /// Group by physical_zone (Back Yard / Front Yard) instead of gateway.
     private var zones: [(zone: String, readings: [Reading])] {
-        let g = Dictionary(grouping: report.readings, by: \.zone)
-        return ["Back Yard", "Side Yards"].compactMap { z in
-            // Match the Ecowitt-app tile order when display_order is provided;
-            // otherwise fall back to channel sort.
-            g[z].map { (zone: z, readings: $0.sorted {
-                ($0.displayOrder ?? $0.channel) < ($1.displayOrder ?? $1.channel)
+        let g = Dictionary(grouping: report.readings) { $0.physicalZone ?? $0.zone }
+        return ["Back Yard", "Front Yard"].compactMap { z in
+            guard filter == .all || filter.rawValue == z else { return nil }
+            return g[z].map { (zone: z, readings: $0.sorted {
+                if $0.zone != $1.zone { return $0.zone < $1.zone }
+                return ($0.displayOrder ?? $0.channel) < ($1.displayOrder ?? $1.channel)
             })}
         }
+    }
+
+    private var zoneCounts: [ZoneFilter: Int] {
+        let g = Dictionary(grouping: report.readings) { $0.physicalZone ?? $0.zone }
+        return [
+            .all:       report.readings.count,
+            .backYard:  (g["Back Yard"]  ?? []).count,
+            .frontYard: (g["Front Yard"] ?? []).count,
+        ]
     }
 
     var body: some View {
@@ -73,6 +93,8 @@ private struct ReportScrollView: View {
                 }
 
                 HeroCardView(report: report)
+
+                ZoneFilterRow(filter: $filter, counts: zoneCounts)
 
                 ForEach(zones, id: \.zone) { group in
                     VStack(alignment: .leading, spacing: 12) {
@@ -107,6 +129,43 @@ private struct ReportScrollView: View {
 }
 
 // MARK: – Smaller pieces
+
+/// Horizontal pill row to filter the report by physical zone.
+private struct ZoneFilterRow: View {
+    @Binding var filter: ZoneFilter
+    let counts: [ZoneFilter: Int]
+    var body: some View {
+        HStack(spacing: 8) {
+            ForEach(ZoneFilter.allCases) { z in
+                Button {
+                    withAnimation(.easeOut(duration: 0.18)) { filter = z }
+                } label: {
+                    HStack(spacing: 8) {
+                        Text(z.rawValue)
+                            .font(.system(size: 13.5, weight: .medium))
+                        Text("\(counts[z] ?? 0)")
+                            .font(.system(size: 11, weight: .semibold))
+                            .monospacedDigit()
+                            .padding(.horizontal, 7).padding(.vertical, 1)
+                            .background(
+                                (filter == z ? Color.white.opacity(0.22) : Color(.tertiarySystemGroupedBackground)),
+                                in: Capsule()
+                            )
+                    }
+                    .padding(.horizontal, 14).padding(.vertical, 8)
+                    .background(
+                        filter == z
+                          ? AnyView(Capsule().fill(DS.brand))
+                          : AnyView(Capsule().fill(Color(.secondarySystemGroupedBackground)).overlay(Capsule().stroke(.separator.opacity(0.5))))
+                    )
+                    .foregroundStyle(filter == z ? Color.white : Color(.label))
+                }
+                .buttonStyle(.plain)
+            }
+            Spacer()
+        }
+    }
+}
 
 private struct RefreshButton: View {
     let loading: Bool

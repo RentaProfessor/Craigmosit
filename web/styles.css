@@ -267,6 +267,52 @@ body::before {
   padding: 22px 0 80px;
 }
 
+/* ─────────────────────────────────────────────────────────────
+   Filter chips (All / Back Yard / Front Yard)
+   ───────────────────────────────────────────────────────────── */
+.filter-row {
+  display: flex;
+  gap: 8px;
+  margin: 22px 0 4px;
+  flex-wrap: wrap;
+  padding: 0 4px;
+}
+.filter-chip {
+  appearance: none;
+  background: var(--bg-elev);
+  border: 1px solid var(--line);
+  color: var(--ink-2);
+  padding: 8px 14px;
+  border-radius: 999px;
+  font: inherit;
+  font-size: 13.5px;
+  font-weight: 500;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  transition: background .2s var(--ease), color .2s var(--ease), border-color .2s var(--ease);
+}
+.filter-chip:hover { color: var(--ink); }
+.filter-chip--active {
+  background: var(--brand);
+  color: #fff;
+  border-color: var(--brand);
+}
+.filter-count {
+  font-size: 11px;
+  font-weight: 600;
+  background: var(--bg-tint);
+  color: var(--ink-3);
+  padding: 1px 7px;
+  border-radius: 999px;
+  font-variant-numeric: tabular-nums;
+}
+.filter-chip--active .filter-count {
+  background: rgba(255,255,255,0.22);
+  color: #fff;
+}
+
 .zone {
   margin-top: 32px;
 }
