@@ -53,7 +53,7 @@
 
   function renderHero(data) {
     const c = data.counts;
-    const total = c.needs_water + c.too_wet + c.good + c.deferred + c.missing;
+    const total = c.needs_water + c.too_wet + c.good + (c.missing || 0);
     const dryPlants = data.readings
       .filter((r) => r.needs_water)
       .sort((a, b) => (b.ideal_low - b.moisture) - (a.ideal_low - a.moisture));
@@ -79,36 +79,30 @@
       sub = "Check the affected gateway.";
     }
 
+    // Weather lives ONLY at the top — plain today/tomorrow, no predictive chips.
     const wx = data.weather;
     let weatherChip = "";
     if (wx.available) {
-      const rainIn = wx.rain_soon_in ?? (wx.rain_soon_mm !== null ? wx.rain_soon_mm / 25.4 : null);
-      const rainBit = rainIn === null ? ""
-        : rainIn >= 0.1 ? `~${rainIn.toFixed(1)}" rain next 2 days`
-        : "Little to no rain";
-      const tempF = wx.high_today_f ?? (wx.high_today_c !== null ? Math.round(wx.high_today_c * 9/5 + 32) : null);
-      const tempBit = tempF !== null ? `${tempF}°F high today` : "";
-      const txt = [rainBit, tempBit].filter(Boolean).join(" · ");
+      const parts = [];
+      if (wx.temp_now_f !== null && wx.temp_now_f !== undefined) parts.push(`Now ${wx.temp_now_f}°F`);
+      if (wx.humidity_now !== null && wx.humidity_now !== undefined) parts.push(`${wx.humidity_now}% RH`);
+      if (wx.high_today_f !== null) {
+        const lo = (wx.low_today_f !== null && wx.low_today_f !== undefined) ? ` / ${wx.low_today_f}°F low` : "";
+        parts.push(`Today ${wx.high_today_f}°F${lo}`);
+      }
+      if (wx.rain_today_in && wx.rain_today_in >= 0.05) parts.push(`${wx.rain_today_in.toFixed(2)}" rain today`);
+      if (wx.high_tomorrow_f !== null && wx.high_tomorrow_f !== undefined) {
+        let tomBit = `Tomorrow ${wx.high_tomorrow_f}°F`;
+        if (wx.rain_tomorrow_in && wx.rain_tomorrow_in >= 0.05) tomBit += `, ${wx.rain_tomorrow_in.toFixed(2)}" rain`;
+        parts.push(tomBit);
+      }
+      const txt = parts.join(" · ");
       weatherChip = `<span class="hero-weather">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
           <path d="M17.5 19a4.5 4.5 0 1 0-3.4-7.5A6 6 0 1 0 7 19h10.5z"/>
         </svg>
         ${escape(txt)}
       </span>`;
-
-      // Heatwave alert — only the 3-day window (where forecasts agree).
-      // 5/7-day are shown as a soft "outlook" only, not an alert.
-      const peak3 = wx.max_high_3day_f, peak3Day = wx.max_high_3day_day;
-      const peak5 = wx.max_high_5day_f, peak5Day = wx.max_high_5day_day;
-      const sev = wx.severe_heat_coming, warn = wx.heatwave_coming;
-      if (sev && peak3) {
-        weatherChip += `<span class="hero-weather hero-weather--warn">${escape(`🔥 Severe heat — ${peak3}°F by ${peak3Day}`)}</span>`;
-      } else if (warn && peak3) {
-        weatherChip += `<span class="hero-weather hero-weather--warn">${escape(`🌡️ Heat coming — ${peak3}°F by ${peak3Day}`)}</span>`;
-      } else if (peak5 && tempF && peak5 - tempF >= 8 && peak5 >= 80) {
-        // Soft outlook (not an alert) — warming trend at the edge of confidence
-        weatherChip += `<span class="hero-weather">${escape(`Outlook: warming to ${peak5}°F by ${peak5Day}`)}</span>`;
-      }
     }
 
     return `<section class="hero-card fade-in">
@@ -120,7 +114,6 @@
         <div class="hero-stat"><div class="num">${c.needs_water}</div><div class="lbl">NEED WATER</div></div>
         <div class="hero-stat"><div class="num">${c.too_wet}</div><div class="lbl">TOO WET</div></div>
         <div class="hero-stat"><div class="num">${c.good}</div><div class="lbl">DOING FINE</div></div>
-        ${c.deferred ? `<div class="hero-stat"><div class="num">${c.deferred}</div><div class="lbl">RAIN COMING</div></div>` : ""}
         ${c.missing  ? `<div class="hero-stat"><div class="num">${c.missing}</div><div class="lbl">OFFLINE</div></div>` : ""}
       </div>
     </section>`;
@@ -144,24 +137,12 @@
           <div class="gauge-bar" style="width:${pct}%"></div>
           <div class="gauge-mark" style="left:${pct}%"></div>
         </div>`;
-      // Show weather-adjusted range; if it was shifted from the base, add a delta hint
-      let rangeStr = `Ideal ${r.ideal_low}–${r.ideal_high}%`;
-      let adjustmentHint = "";
-      if (typeof r.base_low === "number" && r.ideal_low !== r.base_low) {
-        const delta = r.ideal_low - r.base_low;
-        const sign  = delta > 0 ? "+" : "−";
-        rangeStr = `Ideal <strong>${r.ideal_low}–${r.ideal_high}%</strong> today`;
-        // Most informative reason: first adjustment
-        const firstReason = (r.adjustments && r.adjustments[0]) ? r.adjustments[0].reason : "weather";
-        adjustmentHint = `<div class="adjust-hint">${sign}${Math.abs(delta)}% from base ${r.base_low}–${r.base_high}% · ${escape(firstReason)}</div>`;
-      }
       moistureBlock = `
         <div class="moisture-row">
           <div class="moisture-val">${Math.round(r.moisture)}<span class="pct">%</span></div>
-          <div class="moisture-range">${rangeStr}</div>
+          <div class="moisture-range">Ideal ${r.ideal_low}–${r.ideal_high}%</div>
         </div>
-        ${gauge}
-        ${adjustmentHint}`;
+        ${gauge}`;
     }
 
     return `<article class="card fade-in" data-status="${r.status}">

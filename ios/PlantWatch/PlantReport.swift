@@ -15,41 +15,25 @@ struct PlantReport: Decodable {
 }
 
 struct Weather: Decodable {
-    let rainSoonMm:        Double?
-    let rainSoonIn:        Double?
-    let rain7dayIn:        Double?
-    let highTodayC:        Double?
+    let tempNowF:          Int?
+    let humidityNow:       Int?
     let highTodayF:        Int?
-    let maxHigh3dayF:      Int?
-    let maxHigh3dayDay:    String?
-    let maxHigh5dayF:      Int?
-    let maxHigh5dayDay:    String?
-    let maxHigh7dayF:      Int?
-    let maxHigh7dayDay:    String?
-    let heatwaveComing:    Bool?
-    let severeHeatComing:  Bool?
-    let forecastHorizonDays: Int?
-    let minHumidityToday:  Double?
-    let et0TodayIn:        Double?
+    let lowTodayF:         Int?
+    let minHumidityToday:  Int?
+    let rainTodayIn:       Double?
+    let highTomorrowF:     Int?
+    let rainTomorrowIn:    Double?
     let available:         Bool
 
     enum CodingKeys: String, CodingKey {
-        case rainSoonMm       = "rain_soon_mm"
-        case rainSoonIn       = "rain_soon_in"
-        case rain7dayIn       = "rain_7day_in"
-        case highTodayC       = "high_today_c"
+        case tempNowF         = "temp_now_f"
+        case humidityNow      = "humidity_now"
         case highTodayF       = "high_today_f"
-        case maxHigh3dayF     = "max_high_3day_f"
-        case maxHigh3dayDay   = "max_high_3day_day"
-        case maxHigh5dayF     = "max_high_5day_f"
-        case maxHigh5dayDay   = "max_high_5day_day"
-        case maxHigh7dayF     = "max_high_7day_f"
-        case maxHigh7dayDay   = "max_high_7day_day"
-        case heatwaveComing   = "heatwave_coming"
-        case severeHeatComing = "severe_heat_coming"
-        case forecastHorizonDays = "forecast_horizon_days"
+        case lowTodayF        = "low_today_f"
         case minHumidityToday = "min_humidity_today"
-        case et0TodayIn       = "et0_today_in"
+        case rainTodayIn      = "rain_today_in"
+        case highTomorrowF    = "high_tomorrow_f"
+        case rainTomorrowIn   = "rain_tomorrow_in"
         case available
     }
 }
@@ -58,13 +42,12 @@ struct Counts: Decodable {
     let needsWater: Int
     let tooWet:     Int
     let good:       Int
-    let deferred:   Int
     let missing:    Int
 
     enum CodingKeys: String, CodingKey {
         case needsWater = "needs_water"
         case tooWet     = "too_wet"
-        case good, deferred, missing
+        case good, missing
     }
 }
 
@@ -76,11 +59,6 @@ enum Status: String, Decodable {
     case goodHotWarning  = "good_hot_warning"
     case tooWet          = "too_wet"
     case noReading       = "no_reading"
-}
-
-struct Adjustment: Decodable, Hashable {
-    let delta:  String   // e.g. "+5%" or "−2%"
-    let reason: String   // e.g. "91°F tomorrow (heat-sensitive species)"
 }
 
 struct Reading: Decodable, Identifiable {
@@ -97,38 +75,27 @@ struct Reading: Decodable, Identifiable {
     let pair:                  String?
     let pairRole:              String?
 
-    // Weather-adjusted band (today). What the dashboard uses for status.
+    // Static, research-backed ideal band. Not weather-adjusted.
     let idealLow:      Int
     let idealHigh:     Int
-    // Species base band (research-backed, unmoved by weather).
-    let baseLow:       Int?
-    let baseHigh:      Int?
-    // List of adjustments applied to lift/lower the floor today.
-    let adjustments:   [Adjustment]?
 
     let moisture:      Double?
     let battery:       Double?
     let status:        Status
     let headline:      String
     let advice:        String
+    let speciesNote:   String?
     let needsWater:    Bool
 
     enum CodingKeys: String, CodingKey {
-        case zone, channel, name, type, verified, pair, moisture, battery, status, headline, advice, adjustments
+        case zone, channel, name, type, verified, pair, moisture, battery, status, headline, advice
         case displayOrder         = "display_order"
         case physicalZone         = "physical_zone"
         case physicalZoneVerified = "physical_zone_verified"
         case pairRole             = "pair_role"
         case idealLow             = "ideal_low"
         case idealHigh            = "ideal_high"
-        case baseLow              = "base_low"
-        case baseHigh             = "base_high"
+        case speciesNote          = "species_note"
         case needsWater           = "needs_water"
-    }
-
-    /// True when the weather has shifted the ideal floor away from the species base.
-    var rangeAdjusted: Bool {
-        guard let bl = baseLow else { return false }
-        return bl != idealLow
     }
 }

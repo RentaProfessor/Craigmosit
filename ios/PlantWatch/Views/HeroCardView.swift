@@ -64,20 +64,8 @@ struct HeroCardView: View {
                     .padding(.top, 2)
 
                 if report.weather.available {
-                    VStack(alignment: .leading, spacing: 6) {
-                        WeatherChip(weather: report.weather)
-                        if let alert = heatAlert(for: report.weather) {
-                            HeatAlertChip(text: alert)
-                        } else if let outlook = heatOutlook(for: report.weather) {
-                            // Soft outlook (no border, not red/orange)
-                            Text(outlook)
-                                .font(.system(size: 12, weight: .regular))
-                                .foregroundStyle(.white.opacity(0.85))
-                                .padding(.horizontal, 12).padding(.vertical, 6)
-                                .background(Color.white.opacity(0.10), in: Capsule())
-                        }
-                    }
-                    .padding(.top, 12)
+                    WeatherChip(weather: report.weather)
+                        .padding(.top, 12)
                 }
 
                 StatRow(counts: report.counts)
@@ -89,61 +77,40 @@ struct HeroCardView: View {
     }
 }
 
-/// Heat alert (only the 3-day window — beyond that, forecasts disagree).
-private func heatAlert(for w: Weather) -> String? {
-    let p3 = w.maxHigh3dayF, p3d = w.maxHigh3dayDay ?? "the next few days"
-    if w.severeHeatComing == true, let p = p3 { return "🔥 Severe heat — \(p)°F by \(p3d)" }
-    if w.heatwaveComing == true,   let p = p3 { return "🌡️ Heat coming — \(p)°F by \(p3d)" }
-    return nil
-}
-
-/// Soft outlook (warming trend at the edge of forecast confidence, not an alert).
-private func heatOutlook(for w: Weather) -> String? {
-    guard heatAlert(for: w) == nil else { return nil } // alert wins
-    if let t = w.highTodayF, let p5 = w.maxHigh5dayF, let p5d = w.maxHigh5dayDay,
-       p5 - t >= 8, p5 >= 80 {
-        return "Outlook: warming to \(p5)°F by \(p5d)"
-    }
-    return nil
-}
-
-private struct HeatAlertChip: View {
-    let text: String
-    var body: some View {
-        Text(text)
-            .font(.system(size: 13, weight: .semibold))
-            .foregroundStyle(.white)
-            .padding(.horizontal, 12).padding(.vertical, 7)
-            .background(Color(red: 1.0, green: 0.74, blue: 0.2).opacity(0.30), in: Capsule())
-            .overlay(Capsule().strokeBorder(Color(red: 1.0, green: 0.74, blue: 0.2).opacity(0.6), lineWidth: 1))
-    }
-}
-
+/// Weather chip — plain today/tomorrow facts. No predictive alerts.
 private struct WeatherChip: View {
     let weather: Weather
     var body: some View {
         let parts: [String] = {
             var p: [String] = []
-            // Prefer server-converted inches; fall back to mm conversion
-            let inches: Double? = weather.rainSoonIn ?? weather.rainSoonMm.map { $0 / 25.4 }
-            if let i = inches {
-                p.append(i >= 0.1 ? String(format: "~%.1f\" rain next 2 days", i) : "Little to no rain")
+            if let t = weather.tempNowF        { p.append("Now \(t)°F") }
+            if let h = weather.humidityNow     { p.append("\(h)% RH") }
+            if let hi = weather.highTodayF {
+                if let lo = weather.lowTodayF { p.append("Today \(hi)°F / \(lo)°F low") }
+                else                           { p.append("Today \(hi)°F") }
             }
-            // Prefer server-converted °F; fall back to °C conversion
-            let f: Int? = weather.highTodayF ?? weather.highTodayC.map { Int(($0 * 9/5 + 32).rounded()) }
-            if let f = f { p.append("\(f)°F high today") }
+            if let r = weather.rainTodayIn, r >= 0.05 {
+                p.append(String(format: "%.2f\" rain today", r))
+            }
+            if let ht = weather.highTomorrowF {
+                var bit = "Tomorrow \(ht)°F"
+                if let rt = weather.rainTomorrowIn, rt >= 0.05 { bit += String(format: ", %.2f\" rain", rt) }
+                p.append(bit)
+            }
             return p
         }()
-        HStack(spacing: 6) {
+        HStack(alignment: .top, spacing: 6) {
             Image(systemName: "cloud.fill")
                 .font(.system(size: 11, weight: .semibold))
+                .padding(.top, 2)
             Text(parts.joined(separator: " · "))
                 .font(.system(size: 13, weight: .medium))
+                .multilineTextAlignment(.leading)
+                .fixedSize(horizontal: false, vertical: true)
         }
         .foregroundStyle(.white)
-        .padding(.horizontal, 12).padding(.vertical, 7)
-        .background(.ultraThinMaterial.opacity(0.4), in: Capsule())
-        .background(Color.white.opacity(0.15), in: Capsule())
+        .padding(.horizontal, 12).padding(.vertical, 8)
+        .background(Color.white.opacity(0.15), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
     }
 }
 
@@ -154,7 +121,6 @@ private struct StatRow: View {
             stat(value: counts.needsWater, label: "NEED WATER")
             stat(value: counts.tooWet,     label: "TOO WET")
             stat(value: counts.good,       label: "DOING FINE")
-            if counts.deferred > 0 { stat(value: counts.deferred, label: "RAIN COMING") }
             if counts.missing  > 0 { stat(value: counts.missing,  label: "OFFLINE")     }
         }
     }
