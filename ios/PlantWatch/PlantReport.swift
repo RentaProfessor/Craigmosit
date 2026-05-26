@@ -71,6 +71,7 @@ struct Reading: Decodable, Identifiable {
     let physicalZoneVerified:  Bool?
     let name:                  String
     let type:                  String
+    let species:               String      // species key — same as `type`, kept for clarity
     let verified:              Bool
     let pair:                  String?
     let pairRole:              String?
@@ -91,7 +92,7 @@ struct Reading: Decodable, Identifiable {
     let wateringTargetPct:      Int?
 
     enum CodingKeys: String, CodingKey {
-        case zone, channel, name, type, verified, pair, moisture, battery, status, headline, advice
+        case zone, channel, name, type, species, verified, pair, moisture, battery, status, headline, advice
         case displayOrder            = "display_order"
         case physicalZone            = "physical_zone"
         case physicalZoneVerified    = "physical_zone_verified"
