@@ -148,12 +148,16 @@ Deno.serve(async (req) => {
       missing:     readings.filter((r) => r.status === "no_reading").length,
     };
 
+    const cToF = (c: number) => Math.round(c * 9/5 + 32);
+    const mmToIn = (mm: number) => +(mm / 25.4).toFixed(2);
+
     return new Response(JSON.stringify({
       generated_at: new Date().toISOString(),
       weather: {
         rain_soon_mm:  wx.rainSoonMm,
+        rain_soon_in:  wx.rainSoonMm !== null ? mmToIn(wx.rainSoonMm) : null,
         high_today_c:  wx.highTodayC,
-        rain_skip_threshold_mm: 5,
+        high_today_f:  wx.highTodayC !== null ? cToF(wx.highTodayC) : null,
         available: wx.rainSoonMm !== null || wx.highTodayC !== null,
       },
       counts,

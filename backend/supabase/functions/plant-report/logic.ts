@@ -3,8 +3,14 @@
 
 import type { PlantProfile } from "./plants.ts";
 
-export const RAIN_SKIP_MM = 5;   // ~0.2 inch
-export const HOT_DAY_C    = 30;
+export const RAIN_SKIP_MM = 5;   // ~0.2"
+export const HOT_DAY_C    = 30;  // ~86°F  (internal threshold; display is °F)
+
+const mmToInches = (mm: number): number => mm / 25.4;
+const fmtInches  = (mm: number): string => {
+  const inches = mmToInches(mm);
+  return inches < 0.1 ? '<0.1"' : inches.toFixed(1) + '"';
+};
 
 export type Status =
   | "very_dry"
@@ -59,7 +65,7 @@ export function advise(p: PlantProfile, m: number, wx: Weather): Omit<PlantReadi
       return {
         status: "dry_rain_coming",
         headline: veryDry ? "Dry — but rain coming" : "Slightly dry — rain coming",
-        advice: `Skip watering. ~${Math.round(wx.rainSoonMm!)}mm rain expected soon should bring it up.` +
+        advice: `Skip watering. ~${fmtInches(wx.rainSoonMm!)} of rain expected soon should bring it up.` +
                 (veryDry ? " Check again after if it stays low." : ""),
         needsWater: false,
       };

@@ -16,14 +16,16 @@ struct PlantReport: Decodable {
 
 struct Weather: Decodable {
     let rainSoonMm: Double?
+    let rainSoonIn: Double?
     let highTodayC: Double?
-    let rainSkipThresholdMm: Double
+    let highTodayF: Int?
     let available: Bool
 
     enum CodingKeys: String, CodingKey {
-        case rainSoonMm           = "rain_soon_mm"
-        case highTodayC           = "high_today_c"
-        case rainSkipThresholdMm  = "rain_skip_threshold_mm"
+        case rainSoonMm = "rain_soon_mm"
+        case rainSoonIn = "rain_soon_in"
+        case highTodayC = "high_today_c"
+        case highTodayF = "high_today_f"
         case available
     }
 }

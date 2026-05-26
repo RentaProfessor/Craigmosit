@@ -7,6 +7,7 @@
 # Supabase local dev
 backend/supabase/.branches/
 backend/supabase/.temp/
+**/.temp/
 
 # macOS
 .DS_Store
