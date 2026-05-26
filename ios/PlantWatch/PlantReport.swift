@@ -79,23 +79,29 @@ struct Reading: Decodable, Identifiable {
     let idealLow:      Int
     let idealHigh:     Int
 
-    let moisture:      Double?
-    let battery:       Double?
-    let status:        Status
-    let headline:      String
-    let advice:        String
-    let speciesNote:   String?
-    let needsWater:    Bool
+    let moisture:               Double?
+    let battery:                Double?
+    let status:                 Status
+    let headline:               String
+    let advice:                 String
+    let speciesNote:            String?
+    let needsWater:             Bool
+    let ratingExplanation:      String?
+    let wateringRecommendation: String?
+    let wateringTargetPct:      Int?
 
     enum CodingKeys: String, CodingKey {
         case zone, channel, name, type, verified, pair, moisture, battery, status, headline, advice
-        case displayOrder         = "display_order"
-        case physicalZone         = "physical_zone"
-        case physicalZoneVerified = "physical_zone_verified"
-        case pairRole             = "pair_role"
-        case idealLow             = "ideal_low"
-        case idealHigh            = "ideal_high"
-        case speciesNote          = "species_note"
-        case needsWater           = "needs_water"
+        case displayOrder            = "display_order"
+        case physicalZone            = "physical_zone"
+        case physicalZoneVerified    = "physical_zone_verified"
+        case pairRole                = "pair_role"
+        case idealLow                = "ideal_low"
+        case idealHigh               = "ideal_high"
+        case speciesNote             = "species_note"
+        case needsWater              = "needs_water"
+        case ratingExplanation       = "rating_explanation"
+        case wateringRecommendation  = "watering_recommendation"
+        case wateringTargetPct       = "watering_target_pct"
     }
 }

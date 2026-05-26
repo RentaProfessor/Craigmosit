@@ -3,6 +3,7 @@ import SwiftUI
 /// One plant per card. Status drives the left stripe color and the badge tint.
 struct PlantCardView: View {
     let reading: Reading
+    var onInfoTap: (() -> Void)? = nil
 
     var body: some View {
         HStack(spacing: 0) {
@@ -89,7 +90,20 @@ struct PlantCardView: View {
                 .foregroundStyle(.secondary)
             }
             Spacer(minLength: 6)
-            statusBadge
+            HStack(spacing: 6) {
+                statusBadge
+                if onInfoTap != nil {
+                    Button(action: { onInfoTap?() }) {
+                        Image(systemName: "info.circle")
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundStyle(.secondary)
+                            .frame(width: 24, height: 24)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Plant details")
+                }
+            }
         }
     }
 

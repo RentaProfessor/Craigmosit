@@ -13,56 +13,67 @@ const CORS = {"Access-Control-Allow-Origin":"*","Access-Control-Allow-Headers":"
 // ─── Care profiles (UC IPM, UC ANR Master Gardener, CA Avocado Comm.) ─────
 const profiles = {
   citrus: {
+    size: "large",
     low: 40, high: 60,
     species: "citrus",
     why: "Citrus needs consistent moisture (UC IPM: 4–6\"/month in summer). Underwatering = small, sunburned fruit; overwatering invites root rot.",
   },
   avocado: {
+    size: "large",
     low: 45, high: 65,
     species: "avocado",
     why: "Avocados use ~2\"/week in summer with shallow, sensitive roots (CA Avocado Comm.). They hate drought AND wet feet equally — tightest band of any plant here.",
   },
   camellia: {
+    size: "medium",
     low: 35, high: 50,
     species: "camellia",
     why: "Camellias are more often killed by over-watering than under (UC MG). Moderate, even moisture; protect from hot afternoon sun. Bud drop = summer water stress.",
   },
   hydrangea: {
+    size: "medium",
     low: 45, high: 65,
     species: "hydrangea",
     why: "Hydrangea macrophylla needs consistently moist, well-drained soil (Missouri Botanical / UC MG). Wilts visibly when dry; tolerates full sun only with steady moisture.",
   },
   rosemary: {
+    size: "small",
     low: 18, high: 38,
     species: "rosemary",
     why: "Rosemary is Mediterranean and drought-adapted (UC MG Sonoma: \"no summer water required once established\"). Wet roots kill it.",
   },
   westringia: {
+    size: "small",
     low: 20, high: 40,
     species: "westringia",
     why: "Westringia (Australian coast rosemary) is drought-tolerant; tolerates wind and salt. Appreciates occasional summer water in inland heat (UC Marin MG).",
   },
   lavender: {
+    size: "small",
     low: 22, high: 40,
     species: "lavender",
     why: "Lavender is Mediterranean and drought-tolerant, but needs adequate moisture during growth (UC MG). Excellent drainage is non-negotiable.",
   },
   bay_laurel: {
+    size: "medium",
     low: 22, high: 42,
     species: "bay-laurel",
     why: "Established (2+ yr) bay laurel adapts to low water; still needs irrigation in extended dry spells (UC MG Sonoma).",
   },
   star_jasmine: {
+    size: "medium",
     low: 32, high: 52,
     species: "star-jasmine",
     why: "Established star jasmine needs modest irrigation; bumps in extreme heat (UC IPM). Well-drained soil only.",
   },
   boxwood: {
+    size: "medium",
     low: 28, high: 50,
     species: "boxwood",
     why: "Boxwood prefers slow, deep watering over frequent shallow (UC MG Alameda). Drip only — overhead spreads boxwood blight.",
   },
   convolvulus: {
+    size: "small",
     low: 22, high: 42,
     species: "convolvulus",
     why: "Convolvulus cneorum (Silverbush) is a Mediterranean groundcover; drought-tolerant once established. Needs excellent drainage; root rot risk if wet.",
@@ -121,6 +132,54 @@ async function getWx() {
     const r = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${getEnv("WEATHER_LAT")}&longitude=${getEnv("WEATHER_LON")}&current=temperature_2m,relative_humidity_2m&daily=temperature_2m_max,temperature_2m_min,precipitation_sum,relative_humidity_2m_min&timezone=America/Los_Angeles&forecast_days=2&temperature_unit=fahrenheit&precipitation_unit=inch`);
     return r.ok ? r.json() : null;
   } catch { return null; }
+}
+
+
+// ── Watering recommendation scaled by plant size + how dry it is.
+// Returns a single human string + a target % to aim for.
+function wateringPlan(p, currentM, idealLow, idealHigh) {
+  // Size tiers — based on root volume & typical drip emitter output.
+  // Drip line at ~2 gal/hr per emitter assumed.
+  const ladder = {
+    small:  { light: {min:3,  galLo:0.5, galHi:1  }, moderate:{min:7, galLo:1.5,galHi:3 }, deep:{min:12,galLo:3, galHi:5 } },
+    medium: { light: {min:5,  galLo:1,   galHi:2  }, moderate:{min:12,galLo:4,  galHi:6 }, deep:{min:20,galLo:6, galHi:10} },
+    large:  { light: {min:8,  galLo:2,   galHi:4  }, moderate:{min:18,galLo:6,  galHi:10}, deep:{min:30,galLo:12,galHi:18} },
+  };
+  const tier = ladder[p.size] || ladder.medium;
+  const gap = idealLow - currentM;
+  let level, lbl;
+  if (gap >= 10)     { level = "deep";     lbl = "Deep slow soak"; }
+  else if (gap >= 5) { level = "moderate"; lbl = "Moderate watering"; }
+  else if (gap > 0)  { level = "light";    lbl = "Light watering"; }
+  else                { return null; }   // no watering needed
+  const w = tier[level];
+  // Aim for mid-band, not the floor — gives buffer for next day
+  const target = Math.round((idealLow + idealHigh) / 2);
+  return {
+    text: `${lbl}: ~${w.min} min of drip irrigation or ~${w.galLo}–${w.galHi} gallons. Aim to bring moisture to ~${target}%.`,
+    minutes: w.min,
+    gallons_low: w.galLo,
+    gallons_high: w.galHi,
+    target_pct: target,
+  };
+}
+
+// ── Why this rating reads what it does. Plain English for the info popover.
+function ratingExplanation(p, currentM, status) {
+  const m = Math.round(currentM);
+  if (status === "very_dry" || status === "dry") {
+    const gap = p.low - m;
+    const veryWord = status === "very_dry" ? "very dry" : "dry";
+    return `At ${m}% you're ${Math.round(gap)}% below the ${p.low}% floor for ${p.species}, so this reads as ${veryWord}. The ${p.low}–${p.high}% band is the research-backed range for this species.`;
+  }
+  if (status === "too_wet") {
+    const over = m - p.high;
+    return `At ${m}% you're ${Math.round(over)}% above the ${p.high}% ceiling for ${p.species}. Above this band, ${p.species} can suffer from root issues even if the surface looks fine.`;
+  }
+  if (status === "good") {
+    return `At ${m}% you're inside the ideal ${p.low}–${p.high}% band for ${p.species}. No action needed.`;
+  }
+  return "Sensor isn't reporting.";
 }
 
 // ─── Advice: action + species "why". No weather, ever. ────────────────────
@@ -193,9 +252,13 @@ Deno.serve(async (req) => {
           status:"no_reading", headline:"No reading",
           advice:"Sensor isn't reporting — check battery / placement.",
           species_note: p.why, needs_water:false,
+          rating_explanation: "Sensor isn't reporting — nothing to evaluate.",
+          watering_recommendation: null,
+          watering_target_pct: null,
         };
       }
       const a = advise(p, moisture);
+      const plan = wateringPlan(p, moisture, p.low, p.high);
       return {
         zone:plant.zone, channel:plant.ch, display_order:plant.display,
         physical_zone:plant.physical, physical_zone_verified:plant.physical_verified,
@@ -205,6 +268,9 @@ Deno.serve(async (req) => {
         moisture, battery,
         status:a.status, headline:a.headline, advice:a.advice,
         species_note: p.why, needs_water:a.needsWater,
+        rating_explanation: ratingExplanation(p, moisture, a.status),
+        watering_recommendation: plan ? plan.text : null,
+        watering_target_pct: plan ? plan.target_pct : null,
       };
     });
 

@@ -145,7 +145,10 @@
         ${gauge}`;
     }
 
-    return `<article class="card fade-in" data-status="${r.status}">
+    const readingId = `${r.zone}-${r.channel}`;
+    const isOpen = openInfo.has(readingId);
+    const infoPanel = isOpen ? renderInfoPanel(r) : "";
+    return `<article class="card fade-in${isOpen ? " card--info-open" : ""}" data-status="${r.status}" data-id="${escape(readingId)}">
       <div class="card-head">
         <div class="card-name-wrap">
           <div class="card-emoji" aria-hidden="true">${emoji}</div>
@@ -154,11 +157,28 @@
             <div class="card-sub">CH${r.channel}${battery}${r.physical_zone_verified === false ? ` · <span class="unverified">zone unverified</span>` : ""}${r.pair_role ? ` · ${r.pair_role}` : ""}</div>
           </div>
         </div>
-        <span class="badge badge--${r.status}">${escape(r.headline)}</span>
+        <div class="card-head-right">
+          <span class="badge badge--${r.status}">${escape(r.headline)}</span>
+          <button class="info-btn" data-info-id="${escape(readingId)}" aria-label="Plant details" aria-expanded="${isOpen}">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><circle cx="12" cy="8" r=".5" fill="currentColor" stroke="currentColor"/>
+            </svg>
+          </button>
+        </div>
       </div>
       ${moistureBlock}
       <div class="advice">${escape(r.advice)}</div>
+      ${infoPanel}
     </article>`;
+  }
+
+  function renderInfoPanel(r) {
+    const sections = [
+      r.rating_explanation ? `<div class="info-section"><div class="info-label">Why this rating</div><div class="info-text">${escape(r.rating_explanation)}</div></div>` : "",
+      r.watering_recommendation ? `<div class="info-section"><div class="info-label">Suggested watering</div><div class="info-text">${escape(r.watering_recommendation)}</div></div>` : "",
+      r.species_note ? `<div class="info-section"><div class="info-label">Why ${escape(r.species)} needs this range</div><div class="info-text">${escape(r.species_note)}</div></div>` : "",
+    ].filter(Boolean).join("");
+    return `<div class="info-panel">${sections}</div>`;
   }
 
   // Group by physical_zone (Back Yard / Front Yard) — what the user thinks about.
@@ -182,6 +202,10 @@
 
   // Filter state: "all" | "Back Yard" | "Front Yard"
   let zoneFilter = "all";
+  // Layout state: "grid" (responsive 2/3/4-col) | "list" (single column)
+  let layoutMode = localStorage.getItem("pw-layout") || "grid";
+  // Track which card info panels are open (by reading id)
+  const openInfo = new Set();
 
   function renderFilterChips(zones) {
     const counts = {
@@ -193,10 +217,22 @@
       const active = zoneFilter === key ? " filter-chip--active" : "";
       return `<button class="filter-chip${active}" data-filter="${escape(key)}">${escape(label)} <span class="filter-count">${counts[key] ?? 0}</span></button>`;
     };
+    const layoutBtn = (key, label, icon) => {
+      const active = layoutMode === key ? " layout-btn--active" : "";
+      return `<button class="layout-btn${active}" data-layout="${key}" aria-label="${label} view">${icon}</button>`;
+    };
+    const gridIcon = `<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><rect x="3" y="3" width="8" height="8" rx="1.5"/><rect x="13" y="3" width="8" height="8" rx="1.5"/><rect x="3" y="13" width="8" height="8" rx="1.5"/><rect x="13" y="13" width="8" height="8" rx="1.5"/></svg>`;
+    const listIcon = `<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><rect x="3" y="4" width="18" height="3" rx="1.5"/><rect x="3" y="10.5" width="18" height="3" rx="1.5"/><rect x="3" y="17" width="18" height="3" rx="1.5"/></svg>`;
     return `<div class="filter-row">
-      ${chip("all",        "All")}
-      ${chip("Back Yard",  "Back Yard")}
-      ${chip("Front Yard", "Front Yard")}
+      <div class="filter-chips">
+        ${chip("all",        "All")}
+        ${chip("Back Yard",  "Back Yard")}
+        ${chip("Front Yard", "Front Yard")}
+      </div>
+      <div class="layout-toggle" role="group" aria-label="Layout">
+        ${layoutBtn("grid", "Grid", gridIcon)}
+        ${layoutBtn("list", "List", listIcon)}
+      </div>
     </div>`;
   }
 
@@ -217,7 +253,7 @@
             <h2>${escape(z)}</h2>
             <span class="zone-count">${cnt} plant${cnt === 1 ? "" : "s"}</span>
           </div>
-          <div class="grid">${zones[z].map(renderCard).join("")}</div>
+          <div class="grid grid--${layoutMode}">${zones[z].map(renderCard).join("")}</div>
         </section>`;
     }
     for (const [k, note] of Object.entries(data.pair_notes || {})) {
@@ -229,6 +265,23 @@
     main.querySelectorAll(".filter-chip").forEach(btn => {
       btn.addEventListener("click", () => {
         zoneFilter = btn.dataset.filter;
+        renderReport(data);
+      });
+    });
+    // Layout toggle buttons
+    main.querySelectorAll(".layout-btn").forEach(btn => {
+      btn.addEventListener("click", () => {
+        layoutMode = btn.dataset.layout;
+        localStorage.setItem("pw-layout", layoutMode);
+        renderReport(data);
+      });
+    });
+    // Info button toggles
+    main.querySelectorAll(".info-btn").forEach(btn => {
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const id = btn.dataset.infoId;
+        if (openInfo.has(id)) openInfo.delete(id); else openInfo.add(id);
         renderReport(data);
       });
     });

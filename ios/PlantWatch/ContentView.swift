@@ -8,10 +8,21 @@ enum ZoneFilter: String, CaseIterable, Identifiable {
     var id: String { rawValue }
 }
 
+enum LayoutMode: String, CaseIterable, Identifiable {
+    case grid = "Grid"
+    case list = "List"
+    var id: String { rawValue }
+}
+
 struct ContentView: View {
     @StateObject private var svc = PlantReportService()
     @State private var nowTick = Date()
     @State private var filter: ZoneFilter = .all
+    @AppStorage("pw-layout") private var layoutRaw: String = LayoutMode.grid.rawValue
+    @State private var infoReading: Reading?    // currently presented in the sheet
+    private var layout: LayoutMode {
+        get { LayoutMode(rawValue: layoutRaw) ?? .grid }
+    }
     private let tickTimer = Timer.publish(every: 30, on: .main, in: .common).autoconnect()
 
     var body: some View {
@@ -21,7 +32,11 @@ struct ContentView: View {
 
                 Group {
                     if let report = svc.report {
-                        ReportScrollView(report: report, lastLoaded: svc.lastLoaded, nowTick: nowTick, filter: $filter)
+                        ReportScrollView(
+                            report: report, lastLoaded: svc.lastLoaded, nowTick: nowTick,
+                            filter: $filter, layoutRaw: $layoutRaw,
+                            onInfoTap: { infoReading = $0 }
+                        )
                     } else if svc.loading {
                         LoadingView()
                     } else if let err = svc.error {
@@ -31,6 +46,11 @@ struct ContentView: View {
                     } else {
                         LoadingView()
                     }
+                }
+                .sheet(item: $infoReading) { reading in
+                    InfoSheet(reading: reading)
+                        .presentationDetents([.medium, .large])
+                        .presentationDragIndicator(.visible)
                 }
             }
             .navigationTitle("Craig PlantWatch")
@@ -59,6 +79,8 @@ private struct ReportScrollView: View {
     let lastLoaded: Date?
     let nowTick: Date
     @Binding var filter: ZoneFilter
+    @Binding var layoutRaw: String
+    let onInfoTap: (Reading) -> Void
 
     /// Group by physical_zone (Back Yard / Front Yard) instead of gateway.
     private var zones: [(zone: String, readings: [Reading])] {
@@ -81,6 +103,8 @@ private struct ReportScrollView: View {
         ]
     }
 
+    private var layout: LayoutMode { LayoutMode(rawValue: layoutRaw) ?? .grid }
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
@@ -94,7 +118,10 @@ private struct ReportScrollView: View {
 
                 HeroCardView(report: report)
 
-                ZoneFilterRow(filter: $filter, counts: zoneCounts)
+                HStack(spacing: 12) {
+                    ZoneFilterRow(filter: $filter, counts: zoneCounts)
+                    LayoutToggle(layoutRaw: $layoutRaw)
+                }
 
                 ForEach(zones, id: \.zone) { group in
                     VStack(alignment: .leading, spacing: 12) {
@@ -112,8 +139,19 @@ private struct ReportScrollView: View {
                         .padding(.horizontal, 4)
                         .padding(.top, 8)
 
-                        LazyVStack(spacing: 12) {
-                            ForEach(group.readings) { PlantCardView(reading: $0) }
+                        if layout == .grid {
+                            LazyVGrid(columns: [GridItem(.flexible(), spacing: 12),
+                                                GridItem(.flexible(), spacing: 12)], spacing: 12) {
+                                ForEach(group.readings) { r in
+                                    PlantCardView(reading: r, onInfoTap: { onInfoTap(r) })
+                                }
+                            }
+                        } else {
+                            LazyVStack(spacing: 10) {
+                                ForEach(group.readings) { r in
+                                    PlantCardView(reading: r, onInfoTap: { onInfoTap(r) })
+                                }
+                            }
                         }
                     }
                 }
@@ -129,6 +167,91 @@ private struct ReportScrollView: View {
 }
 
 // MARK: – Smaller pieces
+
+/// Compact two-button segmented control for the layout mode.
+private struct LayoutToggle: View {
+    @Binding var layoutRaw: String
+    private var layout: LayoutMode {
+        get { LayoutMode(rawValue: layoutRaw) ?? .grid }
+    }
+    var body: some View {
+        HStack(spacing: 2) {
+            button(.grid, system: "square.grid.2x2")
+            button(.list, system: "list.bullet")
+        }
+        .padding(3)
+        .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(.separator.opacity(0.5)))
+    }
+    private func button(_ m: LayoutMode, system: String) -> some View {
+        let on = layout == m
+        return Button { layoutRaw = m.rawValue } label: {
+            Image(systemName: system)
+                .font(.system(size: 12, weight: .semibold))
+                .frame(width: 30, height: 24)
+                .background(on ? AnyView(Capsule().fill(DS.brand)) : AnyView(Color.clear))
+                .foregroundStyle(on ? Color.white : Color.secondary)
+                .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+/// Sheet shown when the info (i) button is tapped on a card.
+private struct InfoSheet: View {
+    let reading: Reading
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 18) {
+                HStack(spacing: 12) {
+                    Text(DS.emoji(for: reading.name, type: reading.type))
+                        .font(.system(size: 36))
+                        .frame(width: 56, height: 56)
+                        .background(Color(.tertiarySystemGroupedBackground),
+                                    in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(reading.name).font(.title3.bold())
+                        Text("CH\(reading.channel) · ideal \(reading.idealLow)–\(reading.idealHigh)%")
+                            .font(.subheadline).foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Text(reading.headline.uppercased())
+                        .font(.system(size: 11, weight: .bold))
+                        .tracking(0.5)
+                        .padding(.horizontal, 10).padding(.vertical, 5)
+                        .foregroundStyle(reading.status.tint)
+                        .background(reading.status.tint.opacity(0.16), in: Capsule())
+                }
+
+                if let why = reading.ratingExplanation {
+                    sec("Why this rating", body: why)
+                }
+                if let rec = reading.wateringRecommendation {
+                    sec("Suggested watering", body: rec)
+                } else if reading.status == .good {
+                    sec("Suggested watering", body: "None — in range.")
+                }
+                if let note = reading.speciesNote {
+                    sec("Why \(reading.species) needs this range", body: note)
+                }
+            }
+            .padding(20)
+        }
+        .presentationDetents([.medium, .large])
+    }
+    private func sec(_ label: String, body: String) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(label.uppercased())
+                .font(.system(size: 11, weight: .semibold))
+                .tracking(0.6)
+                .foregroundStyle(.secondary)
+            Text(body)
+                .font(.subheadline)
+                .foregroundStyle(.primary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+}
 
 /// Horizontal pill row to filter the report by physical zone.
 private struct ZoneFilterRow: View {
