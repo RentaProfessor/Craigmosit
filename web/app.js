@@ -157,7 +157,12 @@
   function groupByZone(readings) {
     const zones = {};
     for (const r of readings) (zones[r.zone] ??= []).push(r);
-    for (const k in zones) zones[k].sort((a, b) => a.channel - b.channel);
+    // Preserve the Ecowitt-app tile order if the backend provides display_order;
+    // fall back to channel sort.
+    for (const k in zones) {
+      zones[k].sort((a, b) =>
+        (a.display_order ?? a.channel) - (b.display_order ?? b.channel));
+    }
     return zones;
   }
 

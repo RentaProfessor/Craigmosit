@@ -53,7 +53,11 @@ private struct ReportScrollView: View {
     private var zones: [(zone: String, readings: [Reading])] {
         let g = Dictionary(grouping: report.readings, by: \.zone)
         return ["Back Yard", "Side Yards"].compactMap { z in
-            g[z].map { (zone: z, readings: $0.sorted { $0.channel < $1.channel }) }
+            // Match the Ecowitt-app tile order when display_order is provided;
+            // otherwise fall back to channel sort.
+            g[z].map { (zone: z, readings: $0.sorted {
+                ($0.displayOrder ?? $0.channel) < ($1.displayOrder ?? $1.channel)
+            })}
         }
     }
 

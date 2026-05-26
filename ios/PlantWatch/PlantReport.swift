@@ -57,27 +57,29 @@ enum Status: String, Decodable {
 struct Reading: Decodable, Identifiable {
     var id: String { "\(zone)-\(channel)" }
 
-    let zone:      String
-    let channel:   Int
-    let name:      String
-    let type:      String
-    let verified:  Bool
-    let pair:      String?
-    let pairRole:  String?
-    let idealLow:  Int
-    let idealHigh: Int
-    let moisture:  Double?
-    let battery:   Double?
-    let status:    Status
-    let headline:  String
-    let advice:    String
-    let needsWater: Bool
+    let zone:          String
+    let channel:       Int
+    let displayOrder:  Int?           // tile position in the Ecowitt app
+    let name:          String
+    let type:          String
+    let verified:      Bool
+    let pair:          String?
+    let pairRole:      String?
+    let idealLow:      Int
+    let idealHigh:     Int
+    let moisture:      Double?
+    let battery:       Double?
+    let status:        Status
+    let headline:      String
+    let advice:        String
+    let needsWater:    Bool
 
     enum CodingKeys: String, CodingKey {
         case zone, channel, name, type, verified, pair, moisture, battery, status, headline, advice
-        case pairRole   = "pair_role"
-        case idealLow   = "ideal_low"
-        case idealHigh  = "ideal_high"
-        case needsWater = "needs_water"
+        case displayOrder = "display_order"
+        case pairRole     = "pair_role"
+        case idealLow     = "ideal_low"
+        case idealHigh    = "ideal_high"
+        case needsWater   = "needs_water"
     }
 }
