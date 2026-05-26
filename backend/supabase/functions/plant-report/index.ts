@@ -103,14 +103,14 @@ const PLANTS = [
   {zone:"Back Yard",ch:10,display:16, name:"Avocado Shallow",            p:"avocado",     verified:true,  physical:"Back Yard",  physical_verified:true, pair:"av", role:"shallow"},
 
   // ── SIDE YARDS gateway (8 sensors) ────────────────────────────────────
-  {zone:"Side Yards",ch:1,display:1, name:"Camelia",                          p:"camellia",    verified:true, physical:"Back Yard",  physical_verified:true},
-  {zone:"Side Yards",ch:2,display:2, name:"Rosemary Cook Center Floor",       p:"rosemary",    verified:true, physical:"Back Yard",  physical_verified:true},
-  {zone:"Side Yards",ch:5,display:3, name:"Star Jasmine Cook Center Floor",   p:"star_jasmine",verified:true, physical:"Back Yard",  physical_verified:true},
-  {zone:"Side Yards",ch:4,display:4, name:"Rosemary Cook Center Hill",        p:"rosemary",    verified:true, physical:"Back Yard",  physical_verified:true},
-  {zone:"Side Yards",ch:7,display:5, name:"Bay Laurel Behind Spit",           p:"bay_laurel",  verified:true, physical:"Back Yard",  physical_verified:true},
-  {zone:"Side Yards",ch:3,display:6, name:"Lavender Front Yard",              p:"lavender",    verified:true, physical:"Front Yard", physical_verified:true},
-  {zone:"Side Yards",ch:6,display:7, name:"Boxwood Driveway",                 p:"boxwood",     verified:true, physical:"Front Yard", physical_verified:true},
-  {zone:"Side Yards",ch:8,display:8, name:"Westringia Office",                p:"westringia",  verified:true, physical:"Front Yard", physical_verified:true},
+  {zone:"Side Yards",ch:1,display:1, name:"Camelia",                          p:"camellia",    verified:true, physical:"Side Yards", physical_verified:true},
+  {zone:"Side Yards",ch:2,display:2, name:"Rosemary Cook Center Floor",       p:"rosemary",    verified:true, physical:"Side Yards", physical_verified:true},
+  {zone:"Side Yards",ch:5,display:3, name:"Star Jasmine Cook Center Floor",   p:"star_jasmine",verified:true, physical:"Side Yards", physical_verified:true},
+  {zone:"Side Yards",ch:4,display:4, name:"Rosemary Cook Center Hill",        p:"rosemary",    verified:true, physical:"Side Yards", physical_verified:true},
+  {zone:"Side Yards",ch:7,display:5, name:"Bay Laurel Behind Spit",           p:"bay_laurel",  verified:true, physical:"Side Yards", physical_verified:true},
+  {zone:"Side Yards",ch:3,display:6, name:"Lavender Front Yard",              p:"lavender",    verified:true, physical:"Side Yards", physical_verified:true},
+  {zone:"Side Yards",ch:6,display:7, name:"Boxwood Driveway",                 p:"boxwood",     verified:true, physical:"Side Yards", physical_verified:true},
+  {zone:"Side Yards",ch:8,display:8, name:"Westringia Office",                p:"westringia",  verified:true, physical:"Side Yards", physical_verified:true},
 ];
 
 const num = (x) => { const n = parseFloat(x); return isFinite(n) ? n : null; };

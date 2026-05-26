@@ -2,9 +2,9 @@ import SwiftUI
 
 /// Physical-zone filter applied on the dashboard.
 enum ZoneFilter: String, CaseIterable, Identifiable {
-    case all = "All"
+    case all       = "All"
     case backYard  = "Back Yard"
-    case frontYard = "Front Yard"
+    case sideYards = "Side Yards"
     var id: String { rawValue }
 }
 
@@ -85,7 +85,7 @@ private struct ReportScrollView: View {
     /// Group by physical_zone (Back Yard / Front Yard) instead of gateway.
     private var zones: [(zone: String, readings: [Reading])] {
         let g = Dictionary(grouping: report.readings) { $0.physicalZone ?? $0.zone }
-        return ["Back Yard", "Front Yard"].compactMap { z in
+        return ["Back Yard", "Side Yards"].compactMap { z in
             guard filter == .all || filter.rawValue == z else { return nil }
             return g[z].map { (zone: z, readings: $0.sorted {
                 if $0.zone != $1.zone { return $0.zone < $1.zone }
@@ -99,7 +99,7 @@ private struct ReportScrollView: View {
         return [
             .all:       report.readings.count,
             .backYard:  (g["Back Yard"]  ?? []).count,
-            .frontYard: (g["Front Yard"] ?? []).count,
+            .sideYards: (g["Side Yards"] ?? []).count,
         ]
     }
 

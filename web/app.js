@@ -181,7 +181,7 @@
     return `<div class="info-panel">${sections}</div>`;
   }
 
-  // Group by physical_zone (Back Yard / Front Yard) — what the user thinks about.
+  // Group by physical_zone (Back Yard / Side Yards) — what the user thinks about.
   // Falls back to gateway 'zone' if backend doesn't provide physical_zone.
   function groupByPhysicalZone(readings) {
     const zones = {};
@@ -200,7 +200,7 @@
     return zones;
   }
 
-  // Filter state: "all" | "Back Yard" | "Front Yard"
+  // Filter state: "all" | "Back Yard" | "Side Yards"
   let zoneFilter = "all";
   // Layout state: "grid" (responsive 2/3/4-col) | "list" (single column)
   let layoutMode = localStorage.getItem("pw-layout") || "grid";
@@ -211,7 +211,7 @@
     const counts = {
       "all":        Object.values(zones).reduce((s, a) => s + a.length, 0),
       "Back Yard":  (zones["Back Yard"]  || []).length,
-      "Front Yard": (zones["Front Yard"] || []).length,
+      "Side Yards": (zones["Side Yards"] || []).length,
     };
     const chip = (key, label) => {
       const active = zoneFilter === key ? " filter-chip--active" : "";
@@ -227,7 +227,7 @@
       <div class="filter-chips">
         ${chip("all",        "All")}
         ${chip("Back Yard",  "Back Yard")}
-        ${chip("Front Yard", "Front Yard")}
+        ${chip("Side Yards", "Side Yards")}
       </div>
       <div class="layout-toggle" role="group" aria-label="Layout">
         ${layoutBtn("grid", "Grid", gridIcon)}
@@ -239,7 +239,7 @@
   function renderReport(data) {
     const main = $("main");
     const zones = groupByPhysicalZone(data.readings);
-    const order = ["Back Yard", "Front Yard"];
+    const order = ["Back Yard", "Side Yards"];
 
     let html = renderHero(data) + renderFilterChips(zones);
 
