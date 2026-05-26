@@ -68,6 +68,13 @@ struct HeroCardView: View {
                         WeatherChip(weather: report.weather)
                         if let alert = heatAlert(for: report.weather) {
                             HeatAlertChip(text: alert)
+                        } else if let outlook = heatOutlook(for: report.weather) {
+                            // Soft outlook (no border, not red/orange)
+                            Text(outlook)
+                                .font(.system(size: 12, weight: .regular))
+                                .foregroundStyle(.white.opacity(0.85))
+                                .padding(.horizontal, 12).padding(.vertical, 6)
+                                .background(Color.white.opacity(0.10), in: Capsule())
                         }
                     }
                     .padding(.top, 12)
@@ -82,13 +89,21 @@ struct HeroCardView: View {
     }
 }
 
+/// Heat alert (only the 3-day window — beyond that, forecasts disagree).
 private func heatAlert(for w: Weather) -> String? {
-    let today = w.highTodayF
-    let p5 = w.maxHigh5dayF
-    let p7 = w.maxHigh7dayF
-    if w.severeHeatComing == true, let p = p5 { return "🔥 Severe heat — peak \(p)°F within 5 days" }
-    if w.heatwaveComing == true,   let p = p5 { return "🌡️ Heat coming — peak \(p)°F within 5 days" }
-    if let p = p7, let t = today, p >= 88, p - t >= 8 { return "🌡️ Heat ahead — peak \(p)°F within a week" }
+    let p3 = w.maxHigh3dayF, p3d = w.maxHigh3dayDay ?? "the next few days"
+    if w.severeHeatComing == true, let p = p3 { return "🔥 Severe heat — \(p)°F by \(p3d)" }
+    if w.heatwaveComing == true,   let p = p3 { return "🌡️ Heat coming — \(p)°F by \(p3d)" }
+    return nil
+}
+
+/// Soft outlook (warming trend at the edge of forecast confidence, not an alert).
+private func heatOutlook(for w: Weather) -> String? {
+    guard heatAlert(for: w) == nil else { return nil } // alert wins
+    if let t = w.highTodayF, let p5 = w.maxHigh5dayF, let p5d = w.maxHigh5dayDay,
+       p5 - t >= 8, p5 >= 80 {
+        return "Outlook: warming to \(p5)°F by \(p5d)"
+    }
     return nil
 }
 

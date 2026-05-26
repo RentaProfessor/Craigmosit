@@ -158,6 +158,7 @@ Deno.serve(async (req) => {
         rain_soon_in:  wx.rainSoonMm !== null ? mmToIn(wx.rainSoonMm) : null,
         high_today_c:  wx.highTodayC,
         high_today_f:  wx.highTodayC !== null ? cToF(wx.highTodayC) : null,
+        forecast_horizon_days: 3,   // advice only drives off the 3-day window
         available: wx.rainSoonMm !== null || wx.highTodayC !== null,
       },
       counts,

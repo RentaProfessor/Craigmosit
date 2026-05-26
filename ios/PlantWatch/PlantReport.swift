@@ -20,10 +20,15 @@ struct Weather: Decodable {
     let rain7dayIn:        Double?
     let highTodayC:        Double?
     let highTodayF:        Int?
+    let maxHigh3dayF:      Int?
+    let maxHigh3dayDay:    String?
     let maxHigh5dayF:      Int?
+    let maxHigh5dayDay:    String?
     let maxHigh7dayF:      Int?
+    let maxHigh7dayDay:    String?
     let heatwaveComing:    Bool?
     let severeHeatComing:  Bool?
+    let forecastHorizonDays: Int?
     let minHumidityToday:  Double?
     let et0TodayIn:        Double?
     let available:         Bool
@@ -34,10 +39,15 @@ struct Weather: Decodable {
         case rain7dayIn       = "rain_7day_in"
         case highTodayC       = "high_today_c"
         case highTodayF       = "high_today_f"
+        case maxHigh3dayF     = "max_high_3day_f"
+        case maxHigh3dayDay   = "max_high_3day_day"
         case maxHigh5dayF     = "max_high_5day_f"
+        case maxHigh5dayDay   = "max_high_5day_day"
         case maxHigh7dayF     = "max_high_7day_f"
+        case maxHigh7dayDay   = "max_high_7day_day"
         case heatwaveComing   = "heatwave_coming"
         case severeHeatComing = "severe_heat_coming"
+        case forecastHorizonDays = "forecast_horizon_days"
         case minHumidityToday = "min_humidity_today"
         case et0TodayIn       = "et0_today_in"
         case available

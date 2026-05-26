@@ -96,16 +96,18 @@
         ${escape(txt)}
       </span>`;
 
-      // Heatwave / forecast pressure chip (7-day lookahead)
-      const peak7 = wx.max_high_7day_f;
-      const peak5 = wx.max_high_5day_f;
+      // Heatwave alert — only the 3-day window (where forecasts agree).
+      // 5/7-day are shown as a soft "outlook" only, not an alert.
+      const peak3 = wx.max_high_3day_f, peak3Day = wx.max_high_3day_day;
+      const peak5 = wx.max_high_5day_f, peak5Day = wx.max_high_5day_day;
       const sev = wx.severe_heat_coming, warn = wx.heatwave_coming;
-      let alert = "";
-      if (sev && peak5) alert = `🔥 Severe heat — peak ${peak5}°F within 5 days`;
-      else if (warn && peak5) alert = `🌡️ Heat coming — peak ${peak5}°F within 5 days`;
-      else if (peak7 && peak7 >= 88 && tempF && peak7 - tempF >= 8) alert = `🌡️ Heat ahead — peak ${peak7}°F within a week`;
-      if (alert) {
-        weatherChip += `<span class="hero-weather hero-weather--warn">${escape(alert)}</span>`;
+      if (sev && peak3) {
+        weatherChip += `<span class="hero-weather hero-weather--warn">${escape(`🔥 Severe heat — ${peak3}°F by ${peak3Day}`)}</span>`;
+      } else if (warn && peak3) {
+        weatherChip += `<span class="hero-weather hero-weather--warn">${escape(`🌡️ Heat coming — ${peak3}°F by ${peak3Day}`)}</span>`;
+      } else if (peak5 && tempF && peak5 - tempF >= 8 && peak5 >= 80) {
+        // Soft outlook (not an alert) — warming trend at the edge of confidence
+        weatherChip += `<span class="hero-weather">${escape(`Outlook: warming to ${peak5}°F by ${peak5Day}`)}</span>`;
       }
     }
 
