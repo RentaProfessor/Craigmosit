@@ -246,13 +246,18 @@ body::before {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  margin-top: 14px;
+  margin: 14px 8px 0 0;
   padding: 7px 12px;
   border-radius: 999px;
   background: rgba(255,255,255,.14);
   backdrop-filter: blur(8px);
   font-size: 13px;
   font-weight: 500;
+}
+.hero-weather--warn {
+  background: rgba(255, 187, 51, .22);
+  border: 1px solid rgba(255, 187, 51, .4);
+  font-weight: 600;
 }
 
 /* ─────────────────────────────────────────────────────────────

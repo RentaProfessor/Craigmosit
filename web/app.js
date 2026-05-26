@@ -95,6 +95,18 @@
         </svg>
         ${escape(txt)}
       </span>`;
+
+      // Heatwave / forecast pressure chip (7-day lookahead)
+      const peak7 = wx.max_high_7day_f;
+      const peak5 = wx.max_high_5day_f;
+      const sev = wx.severe_heat_coming, warn = wx.heatwave_coming;
+      let alert = "";
+      if (sev && peak5) alert = `🔥 Severe heat — peak ${peak5}°F within 5 days`;
+      else if (warn && peak5) alert = `🌡️ Heat coming — peak ${peak5}°F within 5 days`;
+      else if (peak7 && peak7 >= 88 && tempF && peak7 - tempF >= 8) alert = `🌡️ Heat ahead — peak ${peak7}°F within a week`;
+      if (alert) {
+        weatherChip += `<span class="hero-weather hero-weather--warn">${escape(alert)}</span>`;
+      }
     }
 
     return `<section class="hero-card fade-in">

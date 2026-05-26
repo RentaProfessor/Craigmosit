@@ -64,8 +64,13 @@ struct HeroCardView: View {
                     .padding(.top, 2)
 
                 if report.weather.available {
-                    WeatherChip(weather: report.weather)
-                        .padding(.top, 12)
+                    VStack(alignment: .leading, spacing: 6) {
+                        WeatherChip(weather: report.weather)
+                        if let alert = heatAlert(for: report.weather) {
+                            HeatAlertChip(text: alert)
+                        }
+                    }
+                    .padding(.top, 12)
                 }
 
                 StatRow(counts: report.counts)
@@ -74,6 +79,28 @@ struct HeroCardView: View {
             .padding(20)
         }
         .shadow(color: .black.opacity(0.12), radius: 20, x: 0, y: 8)
+    }
+}
+
+private func heatAlert(for w: Weather) -> String? {
+    let today = w.highTodayF
+    let p5 = w.maxHigh5dayF
+    let p7 = w.maxHigh7dayF
+    if w.severeHeatComing == true, let p = p5 { return "🔥 Severe heat — peak \(p)°F within 5 days" }
+    if w.heatwaveComing == true,   let p = p5 { return "🌡️ Heat coming — peak \(p)°F within 5 days" }
+    if let p = p7, let t = today, p >= 88, p - t >= 8 { return "🌡️ Heat ahead — peak \(p)°F within a week" }
+    return nil
+}
+
+private struct HeatAlertChip: View {
+    let text: String
+    var body: some View {
+        Text(text)
+            .font(.system(size: 13, weight: .semibold))
+            .foregroundStyle(.white)
+            .padding(.horizontal, 12).padding(.vertical, 7)
+            .background(Color(red: 1.0, green: 0.74, blue: 0.2).opacity(0.30), in: Capsule())
+            .overlay(Capsule().strokeBorder(Color(red: 1.0, green: 0.74, blue: 0.2).opacity(0.6), lineWidth: 1))
     }
 }
 

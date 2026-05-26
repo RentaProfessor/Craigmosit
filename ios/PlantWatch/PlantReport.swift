@@ -15,17 +15,31 @@ struct PlantReport: Decodable {
 }
 
 struct Weather: Decodable {
-    let rainSoonMm: Double?
-    let rainSoonIn: Double?
-    let highTodayC: Double?
-    let highTodayF: Int?
-    let available: Bool
+    let rainSoonMm:        Double?
+    let rainSoonIn:        Double?
+    let rain7dayIn:        Double?
+    let highTodayC:        Double?
+    let highTodayF:        Int?
+    let maxHigh5dayF:      Int?
+    let maxHigh7dayF:      Int?
+    let heatwaveComing:    Bool?
+    let severeHeatComing:  Bool?
+    let minHumidityToday:  Double?
+    let et0TodayIn:        Double?
+    let available:         Bool
 
     enum CodingKeys: String, CodingKey {
-        case rainSoonMm = "rain_soon_mm"
-        case rainSoonIn = "rain_soon_in"
-        case highTodayC = "high_today_c"
-        case highTodayF = "high_today_f"
+        case rainSoonMm       = "rain_soon_mm"
+        case rainSoonIn       = "rain_soon_in"
+        case rain7dayIn       = "rain_7day_in"
+        case highTodayC       = "high_today_c"
+        case highTodayF       = "high_today_f"
+        case maxHigh5dayF     = "max_high_5day_f"
+        case maxHigh7dayF     = "max_high_7day_f"
+        case heatwaveComing   = "heatwave_coming"
+        case severeHeatComing = "severe_heat_coming"
+        case minHumidityToday = "min_humidity_today"
+        case et0TodayIn       = "et0_today_in"
         case available
     }
 }
