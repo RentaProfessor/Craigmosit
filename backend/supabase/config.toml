@@ -1,0 +1,7 @@
+project_id = "plantwatch"
+
+[functions.plant-report]
+verify_jwt = false   # public endpoint — single trusted audience per spec §2
+
+[db]
+major_version = 15
