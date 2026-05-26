@@ -144,12 +144,24 @@
           <div class="gauge-bar" style="width:${pct}%"></div>
           <div class="gauge-mark" style="left:${pct}%"></div>
         </div>`;
+      // Show weather-adjusted range; if it was shifted from the base, add a delta hint
+      let rangeStr = `Ideal ${r.ideal_low}–${r.ideal_high}%`;
+      let adjustmentHint = "";
+      if (typeof r.base_low === "number" && r.ideal_low !== r.base_low) {
+        const delta = r.ideal_low - r.base_low;
+        const sign  = delta > 0 ? "+" : "−";
+        rangeStr = `Ideal <strong>${r.ideal_low}–${r.ideal_high}%</strong> today`;
+        // Most informative reason: first adjustment
+        const firstReason = (r.adjustments && r.adjustments[0]) ? r.adjustments[0].reason : "weather";
+        adjustmentHint = `<div class="adjust-hint">${sign}${Math.abs(delta)}% from base ${r.base_low}–${r.base_high}% · ${escape(firstReason)}</div>`;
+      }
       moistureBlock = `
         <div class="moisture-row">
           <div class="moisture-val">${Math.round(r.moisture)}<span class="pct">%</span></div>
-          <div class="moisture-range">Ideal ${r.ideal_low}–${r.ideal_high}%</div>
+          <div class="moisture-range">${rangeStr}</div>
         </div>
-        ${gauge}`;
+        ${gauge}
+        ${adjustmentHint}`;
     }
 
     return `<article class="card fade-in" data-status="${r.status}">

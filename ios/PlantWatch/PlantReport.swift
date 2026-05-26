@@ -78,19 +78,32 @@ enum Status: String, Decodable {
     case noReading       = "no_reading"
 }
 
+struct Adjustment: Decodable, Hashable {
+    let delta:  String   // e.g. "+5%" or "−2%"
+    let reason: String   // e.g. "91°F tomorrow (heat-sensitive species)"
+}
+
 struct Reading: Decodable, Identifiable {
     var id: String { "\(zone)-\(channel)" }
 
     let zone:          String
     let channel:       Int
-    let displayOrder:  Int?           // tile position in the Ecowitt app
+    let displayOrder:  Int?
     let name:          String
     let type:          String
     let verified:      Bool
     let pair:          String?
     let pairRole:      String?
+
+    // Weather-adjusted band (today). What the dashboard uses for status.
     let idealLow:      Int
     let idealHigh:     Int
+    // Species base band (research-backed, unmoved by weather).
+    let baseLow:       Int?
+    let baseHigh:      Int?
+    // List of adjustments applied to lift/lower the floor today.
+    let adjustments:   [Adjustment]?
+
     let moisture:      Double?
     let battery:       Double?
     let status:        Status
@@ -99,11 +112,19 @@ struct Reading: Decodable, Identifiable {
     let needsWater:    Bool
 
     enum CodingKeys: String, CodingKey {
-        case zone, channel, name, type, verified, pair, moisture, battery, status, headline, advice
+        case zone, channel, name, type, verified, pair, moisture, battery, status, headline, advice, adjustments
         case displayOrder = "display_order"
         case pairRole     = "pair_role"
         case idealLow     = "ideal_low"
         case idealHigh    = "ideal_high"
+        case baseLow      = "base_low"
+        case baseHigh     = "base_high"
         case needsWater   = "needs_water"
+    }
+
+    /// True when the weather has shifted the ideal floor away from the species base.
+    var rangeAdjusted: Bool {
+        guard let bl = baseLow else { return false }
+        return bl != idealLow
     }
 }

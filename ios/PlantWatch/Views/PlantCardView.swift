@@ -17,6 +17,13 @@ struct PlantCardView: View {
                 if let m = reading.moisture {
                     moisture(value: m)
                     MoistureGauge(value: m, low: reading.idealLow, high: reading.idealHigh, status: reading.status)
+                    if reading.rangeAdjusted, let bl = reading.baseLow, let bh = reading.baseHigh {
+                        AdjustmentHint(
+                            baseLow: bl, baseHigh: bh,
+                            adjustedLow: reading.idealLow, adjustedHigh: reading.idealHigh,
+                            firstReason: reading.adjustments?.first?.reason ?? "weather"
+                        )
+                    }
                 } else {
                     Text("No reading")
                         .font(.system(size: 17, weight: .medium))
@@ -116,6 +123,40 @@ struct PlantCardView: View {
                 .monospacedDigit()
                 .foregroundStyle(.secondary)
         }
+    }
+}
+
+/// Small inline hint shown under the gauge when the weather has pushed
+/// the ideal floor up or down from the species-base.
+private struct AdjustmentHint: View {
+    let baseLow: Int
+    let baseHigh: Int
+    let adjustedLow: Int
+    let adjustedHigh: Int
+    let firstReason: String
+
+    private var delta: Int { adjustedLow - baseLow }
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "arrow.up.right.and.arrow.down.left.rectangle")
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundStyle(DS.brandLight)
+            (
+                Text(delta > 0 ? "+\(delta)% " : "\(delta)% ")
+                    .font(.system(size: 11.5, weight: .semibold))
+                    .foregroundStyle(delta > 0 ? Color(.label) : .secondary)
+                +
+                Text("from species base \(baseLow)–\(baseHigh)% · ")
+                    .font(.system(size: 11.5))
+                    .foregroundStyle(.secondary)
+                +
+                Text(firstReason)
+                    .font(.system(size: 11.5))
+                    .foregroundStyle(.secondary)
+            )
+        }
+        .padding(.top, 2)
     }
 }
 
