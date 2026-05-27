@@ -5,6 +5,102 @@
   const cfg = window.PLANTWATCH_CONFIG || {};
   const $ = (id) => document.getElementById(id);
 
+  /* ─────────────────────────────────────────────────────────────
+     Local preferences: per-plant range overrides + notifications
+     ───────────────────────────────────────────────────────────── */
+  const PREF = {
+    overrides:   "pw-overrides",        // { "Back Yard-4": {low, high} }
+    notifyMode:  "pw-notify-mode",      // "off" | "dry" | "wet" | "both"
+    notifyOn:    "pw-notify-plants",    // ["Back Yard-4", ...]
+    lastStatus:  "pw-last-status",      // { "Back Yard-4": "good" }
+  };
+  const lsRead  = (k, d) => { try { return JSON.parse(localStorage.getItem(k)) ?? d; } catch { return d; } };
+  const lsWrite = (k, v) => localStorage.setItem(k, JSON.stringify(v));
+
+  const getOverrides     = () => lsRead(PREF.overrides, {});
+  const setOverride      = (id, low, high) => { const o = getOverrides(); o[id] = { low, high }; lsWrite(PREF.overrides, o); };
+  const clearOverride    = (id) => { const o = getOverrides(); delete o[id]; lsWrite(PREF.overrides, o); };
+
+  const getNotifyMode    = () => localStorage.getItem(PREF.notifyMode) || "off";
+  const setNotifyMode    = (m) => localStorage.setItem(PREF.notifyMode, m);
+
+  const getNotifyPlants  = () => new Set(lsRead(PREF.notifyOn, []));
+  const isNotifyOn       = (id) => getNotifyPlants().has(id);
+  const setNotifyOn      = (id, on) => {
+    const s = getNotifyPlants();
+    if (on) s.add(id); else s.delete(id);
+    lsWrite(PREF.notifyOn, Array.from(s));
+  };
+
+  // Apply overrides + recompute status client-side so the rest of the UI
+  // and the notification check both see the user's adjusted band.
+  function applyOverrides(readings) {
+    const ov = getOverrides();
+    return readings.map(r => {
+      const id = `${r.zone}-${r.channel}`;
+      const o = ov[id];
+      if (!o) return { ...r, custom_range: false };
+      const m = r.moisture;
+      if (m === null) return { ...r, custom_range: true, ideal_low: o.low, ideal_high: o.high };
+      let status, headline;
+      if (m < o.low) {
+        const gap = o.low - m;
+        const vd  = gap >= 12;
+        status = vd ? "very_dry" : "dry";
+        headline = vd ? "VERY DRY" : "Dry";
+      } else if (m > o.high) {
+        status = "too_wet"; headline = "Too wet";
+      } else {
+        status = "good";    headline = "Good";
+      }
+      return {
+        ...r,
+        ideal_low: o.low, ideal_high: o.high,
+        status, headline,
+        needs_water: status === "dry" || status === "very_dry",
+        custom_range: true,
+      };
+    });
+  }
+
+  // Fire browser notifications when a plant's status worsens, respecting
+  // the global mode + per-plant opt-in.
+  async function notifyIfChanged(readings) {
+    const mode = getNotifyMode();
+    if (mode === "off") return;
+    if (typeof Notification === "undefined") return;
+    if (Notification.permission !== "granted") return;
+
+    const last = lsRead(PREF.lastStatus, {});
+    const cur  = {};
+    for (const r of readings) {
+      const id = `${r.zone}-${r.channel}`;
+      cur[id] = r.status;
+      if (!isNotifyOn(id)) continue;
+
+      const prev = last[id];
+      if (prev === r.status) continue;       // unchanged
+
+      const becameDry = (r.status === "dry" || r.status === "very_dry") &&
+                        (prev !== "dry" && prev !== "very_dry");
+      const becameWet = r.status === "too_wet" && prev !== "too_wet";
+
+      const fireDry = (mode === "dry" || mode === "both") && becameDry;
+      const fireWet = (mode === "wet" || mode === "both") && becameWet;
+
+      if (fireDry || fireWet) {
+        try {
+          new Notification(`🌱 ${r.name}`, {
+            body: `${r.headline} · ${Math.round(r.moisture)}% (ideal ${r.ideal_low}–${r.ideal_high}%)`,
+            tag: id,
+            icon: "icon-192.png",
+          });
+        } catch (_) {}
+      }
+    }
+    lsWrite(PREF.lastStatus, cur);
+  }
+
   /* ── helpers ──────────────────────────────────────────────── */
 
   const emojiFor = (name, type) => {
@@ -173,6 +269,7 @@
   }
 
   function renderInfoPanel(r) {
+    const id = `${r.zone}-${r.channel}`;
     const sourceLink = (r.source_label && r.source_url)
       ? `<div class="info-source">Source: <a href="${escape(r.source_url)}" target="_blank" rel="noopener">${escape(r.source_label)}</a></div>`
       : "";
@@ -180,8 +277,51 @@
       r.rating_explanation ? `<div class="info-section"><div class="info-label">Why this rating</div><div class="info-text">${escape(r.rating_explanation)}</div></div>` : "",
       r.watering_recommendation ? `<div class="info-section"><div class="info-label">Suggested watering</div><div class="info-text">${escape(r.watering_recommendation)}</div></div>` : "",
       r.species_note ? `<div class="info-section"><div class="info-label">Why ${escape(r.species)} needs this range</div><div class="info-text">${escape(r.species_note)}</div>${sourceLink}</div>` : "",
+      renderRangeEditor(r, id),
+      renderNotifyToggle(r, id),
     ].filter(Boolean).join("");
     return `<div class="info-panel">${sections}</div>`;
+  }
+
+  function renderRangeEditor(r, id) {
+    const isCustom = !!r.custom_range;
+    const customBadge = isCustom ? `<span class="custom-badge">Custom</span>` : "";
+    const resetBtn   = isCustom ? `<button class="link-btn reset-range-btn" data-plant-id="${escape(id)}">Reset to default</button>` : "";
+    return `<div class="info-section">
+      <div class="info-label">Adjust ideal range ${customBadge}</div>
+      <div class="range-editor" data-plant-id="${escape(id)}">
+        <div class="range-row">
+          <label>Low</label>
+          <input type="range" min="5" max="80" value="${r.ideal_low}" class="range-input range-low" />
+          <span class="range-val range-low-val">${r.ideal_low}%</span>
+        </div>
+        <div class="range-row">
+          <label>High</label>
+          <input type="range" min="20" max="95" value="${r.ideal_high}" class="range-input range-high" />
+          <span class="range-val range-high-val">${r.ideal_high}%</span>
+        </div>
+        ${resetBtn}
+      </div>
+    </div>`;
+  }
+
+  function renderNotifyToggle(r, id) {
+    const on = isNotifyOn(id);
+    const mode = getNotifyMode();
+    const hint = mode === "off"
+      ? `Global notifications are off — enable in <button class="link-btn open-settings-btn">Settings</button>.`
+      : `Will alert when ${mode === "both" ? "too dry OR too wet" : (mode === "dry" ? "too dry" : "too wet")}.`;
+    return `<div class="info-section">
+      <div class="info-label">Alerts for this plant</div>
+      <div class="notify-row">
+        <label class="switch">
+          <input type="checkbox" class="notify-toggle" data-plant-id="${escape(id)}" ${on ? "checked" : ""}/>
+          <span class="slider-pill"></span>
+        </label>
+        <span class="notify-state">${on ? "On" : "Off"}</span>
+      </div>
+      <div class="notify-hint">${hint}</div>
+    </div>`;
   }
 
   // Group by physical_zone (Back Yard / Side Yards) — what the user thinks about.
@@ -288,6 +428,129 @@
         renderReport(data);
       });
     });
+
+    // Range editor sliders (debounced save)
+    main.querySelectorAll(".range-editor").forEach(ed => {
+      const id     = ed.dataset.plantId;
+      const lowEl  = ed.querySelector(".range-low");
+      const highEl = ed.querySelector(".range-high");
+      const lowVal = ed.querySelector(".range-low-val");
+      const highVal= ed.querySelector(".range-high-val");
+      let saveTimer;
+      const sync = () => {
+        let lo = +lowEl.value, hi = +highEl.value;
+        if (lo >= hi) { lo = Math.min(hi - 1, lo); lowEl.value = lo; }
+        lowVal.textContent  = lo + "%";
+        highVal.textContent = hi + "%";
+        clearTimeout(saveTimer);
+        saveTimer = setTimeout(() => {
+          setOverride(id, lo, hi);
+          fetchAndRender();
+        }, 400);
+      };
+      lowEl.addEventListener("input", sync);
+      highEl.addEventListener("input", sync);
+    });
+    main.querySelectorAll(".reset-range-btn").forEach(b => {
+      b.addEventListener("click", () => {
+        clearOverride(b.dataset.plantId);
+        fetchAndRender();
+      });
+    });
+
+    // Per-plant notification toggle
+    main.querySelectorAll(".notify-toggle").forEach(t => {
+      t.addEventListener("change", async () => {
+        const on = t.checked;
+        if (on && typeof Notification !== "undefined" && Notification.permission === "default") {
+          await Notification.requestPermission();
+        }
+        setNotifyOn(t.dataset.plantId, on);
+        renderReport(data);
+      });
+    });
+
+    // "Open settings" links inside info panels
+    main.querySelectorAll(".open-settings-btn").forEach(b => {
+      b.addEventListener("click", openGlobalSettings);
+    });
+  }
+
+  // Re-render using the current cached data after a preference change,
+  // without forcing a network roundtrip.
+  function fetchAndRender() {
+    if (!lastData) return;
+    // Re-apply overrides since they changed
+    lastData.readings = applyOverrides(
+      // Strip any client-applied fields and start from server numbers
+      lastData.readings.map(r => ({
+        ...r,
+        // restore server status if we'd previously overwritten it
+        status: r.server_status || r.status,
+      }))
+    );
+    lastData.counts = {
+      needs_water: lastData.readings.filter(r => r.needs_water).length,
+      too_wet:     lastData.readings.filter(r => r.status === "too_wet").length,
+      good:        lastData.readings.filter(r => r.status === "good").length,
+      missing:     lastData.readings.filter(r => r.status === "no_reading").length,
+    };
+    renderReport(lastData);
+  }
+
+  // Global notification settings — opens a small modal anchored to the gear
+  function openGlobalSettings() {
+    const cur = getNotifyMode();
+    const opts = [
+      { v: "off",  label: "Off" },
+      { v: "dry",  label: "Only when too dry" },
+      { v: "wet",  label: "Only when too wet" },
+      { v: "both", label: "Both dry and too wet" },
+    ];
+    const perm = (typeof Notification !== "undefined") ? Notification.permission : "unsupported";
+
+    const wrap = document.createElement("div");
+    wrap.className = "modal-backdrop";
+    wrap.innerHTML = `
+      <div class="modal">
+        <div class="modal-head">
+          <h3>Notifications</h3>
+          <button class="icon-btn modal-close" aria-label="Close">×</button>
+        </div>
+        <div class="modal-body">
+          <div class="info-label" style="margin-bottom:6px">When to alert</div>
+          ${opts.map(o => `
+            <label class="radio-row">
+              <input type="radio" name="notify-mode" value="${o.v}" ${cur === o.v ? "checked" : ""}/>
+              <span>${o.label}</span>
+            </label>`).join("")}
+          <div class="modal-divider"></div>
+          <div class="info-label" style="margin-bottom:4px">Browser permission</div>
+          <div class="info-text" style="margin-bottom:8px">${
+            perm === "granted" ? "✅ Granted" :
+            perm === "denied"  ? "❌ Denied — enable in browser settings" :
+            perm === "default" ? "Not yet requested — turn on a plant toggle to request" :
+            "Notifications are not supported in this browser."
+          }</div>
+          <div class="info-text" style="font-size:12px;color:var(--ink-3)">
+            Per-plant toggles live in each plant's info panel (tap the ⓘ on a card).
+            Alerts fire when the dashboard is open or recently active.
+          </div>
+        </div>
+      </div>`;
+    document.body.appendChild(wrap);
+    const close = () => wrap.remove();
+    wrap.querySelector(".modal-close").addEventListener("click", close);
+    wrap.addEventListener("click", (e) => { if (e.target === wrap) close(); });
+    wrap.querySelectorAll('input[name="notify-mode"]').forEach(r => {
+      r.addEventListener("change", () => {
+        setNotifyMode(r.value);
+        if (r.value !== "off" && typeof Notification !== "undefined" && Notification.permission === "default") {
+          Notification.requestPermission();
+        }
+        if (lastData) renderReport(lastData);
+      });
+    });
   }
 
   function renderSetup(data) {
@@ -358,10 +621,20 @@
       if (!r.ok) throw new Error(`Backend returned HTTP ${r.status}`);
       const data = await r.json();
       if (data.error) throw new Error(data.error);
+      // Apply per-plant overrides and recompute counts/status BEFORE rendering
+      data.readings = applyOverrides(data.readings);
+      data.counts = {
+        needs_water: data.readings.filter(r => r.needs_water).length,
+        too_wet:     data.readings.filter(r => r.status === "too_wet").length,
+        good:        data.readings.filter(r => r.status === "good").length,
+        missing:     data.readings.filter(r => r.status === "no_reading").length,
+      };
       lastData = data;
       $("meta").textContent = `Updated ${relTime(data.generated_at)}`;
       $("counts-meta").textContent = `${data.readings.length} sensors`;
       (mode === "setup" ? renderSetup : renderReport)(data);
+      // Fire notifications for any plant whose status worsened
+      notifyIfChanged(data.readings);
     } catch (e) {
       showError("Couldn't load the report",
         `${escape(e.message)}.<br/>Usually the function hasn't been deployed yet, the Ecowitt keys are wrong, or a sensor is offline.`);
@@ -391,6 +664,7 @@
 
   /* ── interactions ─────────────────────────────────────────── */
   $("refresh").addEventListener("click", load);
+  $("settings").addEventListener("click", openGlobalSettings);
   $("toggle-setup").addEventListener("click", () => {
     mode = mode === "report" ? "setup" : "report";
     $("toggle-setup").textContent = mode === "setup"

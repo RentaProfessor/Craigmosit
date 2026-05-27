@@ -85,6 +85,9 @@ struct PlantCardView: View {
                     if let role = reading.pairRole {
                         Text("· \(role)")
                     }
+                    if reading.customRange {
+                        Text("· custom range").foregroundStyle(DS.brand)
+                    }
                 }
                 .font(.system(size: 11.5))
                 .foregroundStyle(.secondary)

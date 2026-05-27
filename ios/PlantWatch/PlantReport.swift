@@ -3,14 +3,28 @@ import Foundation
 struct PlantReport: Decodable {
     let generatedAt: Date
     let weather: Weather
-    let counts: Counts
+    var counts: Counts
     let pairNotes: [String: String]
-    let readings: [Reading]
+    var readings: [Reading]
 
     enum CodingKeys: String, CodingKey {
         case generatedAt = "generated_at"
         case weather, counts, readings
         case pairNotes  = "pair_notes"
+    }
+
+    /// Apply user overrides + recompute counts so the rest of the UI sees the new world.
+    @MainActor
+    func applying(_ prefs: Preferences) -> PlantReport {
+        var copy = self
+        copy.readings = readings.map { prefs.applyOverride($0) }
+        copy.counts = Counts(
+            needsWater: copy.readings.filter { $0.needsWater }.count,
+            tooWet:     copy.readings.filter { $0.status == .tooWet }.count,
+            good:       copy.readings.filter { $0.status == .good }.count,
+            missing:    copy.readings.filter { $0.status == .noReading }.count
+        )
+        return copy
     }
 }
 
@@ -49,6 +63,21 @@ struct Counts: Decodable {
         case tooWet     = "too_wet"
         case good, missing
     }
+
+    init(needsWater: Int, tooWet: Int, good: Int, missing: Int) {
+        self.needsWater = needsWater
+        self.tooWet = tooWet
+        self.good = good
+        self.missing = missing
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        needsWater = try c.decode(Int.self, forKey: .needsWater)
+        tooWet     = try c.decode(Int.self, forKey: .tooWet)
+        good       = try c.decode(Int.self, forKey: .good)
+        missing    = try c.decode(Int.self, forKey: .missing)
+    }
 }
 
 enum Status: String, Decodable {
@@ -76,22 +105,24 @@ struct Reading: Decodable, Identifiable {
     let pair:                  String?
     let pairRole:              String?
 
-    // Static, research-backed ideal band. Not weather-adjusted.
-    let idealLow:      Int
-    let idealHigh:     Int
+    // Static research-backed ideal band — mutable so client-side overrides can replace it.
+    var idealLow:      Int
+    var idealHigh:     Int
 
     let moisture:               Double?
     let battery:                Double?
-    let status:                 Status
-    let headline:               String
+    var status:                 Status
+    var headline:               String
     let advice:                 String
     let speciesNote:            String?
     let sourceLabel:            String?
     let sourceUrl:              String?
-    let needsWater:             Bool
+    var needsWater:             Bool
     let ratingExplanation:      String?
     let wateringRecommendation: String?
     let wateringTargetPct:      Int?
+    /// True if the user has set a custom range overriding the species default.
+    var customRange:            Bool = false
 
     enum CodingKeys: String, CodingKey {
         case zone, channel, name, type, species, verified, pair, moisture, battery, status, headline, advice

@@ -26,10 +26,14 @@ final class PlantReportService: ObservableObject {
             }
             let decoder = JSONDecoder()
             decoder.dateDecodingStrategy = .iso8601
-            let parsed = try decoder.decode(PlantReport.self, from: data)
+            var parsed = try decoder.decode(PlantReport.self, from: data)
+            // Apply local overrides BEFORE storing, then recompute counts
+            let prefs = Preferences.shared
+            parsed = parsed.applying(prefs)
             self.report = parsed
             self.error = nil
             self.lastLoaded = Date()
+            prefs.notifyIfChanged(parsed.readings)
         } catch {
             self.error = humanize(error)
             if self.report == nil { /* preserve previous data on transient failures */ }

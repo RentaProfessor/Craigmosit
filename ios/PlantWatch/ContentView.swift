@@ -1,4 +1,5 @@
 import SwiftUI
+import UserNotifications
 
 /// Physical-zone filter applied on the dashboard.
 enum ZoneFilter: String, CaseIterable, Identifiable {
@@ -16,10 +17,12 @@ enum LayoutMode: String, CaseIterable, Identifiable {
 
 struct ContentView: View {
     @StateObject private var svc = PlantReportService()
+    @StateObject private var prefs = Preferences.shared
     @State private var nowTick = Date()
     @State private var filter: ZoneFilter = .all
     @AppStorage("pw-layout") private var layoutRaw: String = LayoutMode.grid.rawValue
     @State private var infoReading: Reading?    // currently presented in the sheet
+    @State private var settingsOpen = false
     private var layout: LayoutMode {
         get { LayoutMode(rawValue: layoutRaw) ?? .grid }
     }
@@ -57,12 +60,23 @@ struct ContentView: View {
             .navigationBarTitleDisplayMode(.large)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
-                    RefreshButton(loading: svc.loading) {
-                        Task { await svc.load() }
+                    HStack(spacing: 4) {
+                        Button { settingsOpen = true } label: {
+                            Image(systemName: "gear")
+                                .font(.system(size: 16, weight: .semibold))
+                        }
+                        .accessibilityLabel("Notification settings")
+                        RefreshButton(loading: svc.loading) {
+                            Task { await svc.load() }
+                        }
                     }
                 }
             }
             .refreshable { await svc.load() }
+        }
+        .sheet(isPresented: $settingsOpen) {
+            SettingsSheet().environmentObject(prefs)
+                .presentationDetents([.medium])
         }
         .task {
             await svc.load()
@@ -200,6 +214,11 @@ private struct LayoutToggle: View {
 /// Sheet shown when the info (i) button is tapped on a card.
 private struct InfoSheet: View {
     let reading: Reading
+    @ObservedObject private var prefs = Preferences.shared
+    @State private var lowDraft: Double = 0
+    @State private var highDraft: Double = 0
+    @State private var notifyOn: Bool = false
+    private var plantId: String { "\(reading.zone)-\(reading.channel)" }
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
@@ -255,10 +274,79 @@ private struct InfoSheet: View {
                         }
                     }
                 }
+
+                // ── Custom range editor ──────────────────────────────
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack {
+                        Text("ADJUST IDEAL RANGE")
+                            .font(.system(size: 11, weight: .semibold))
+                            .tracking(0.6)
+                            .foregroundStyle(.secondary)
+                        if reading.customRange {
+                            Text("CUSTOM")
+                                .font(.system(size: 9, weight: .bold))
+                                .tracking(0.5)
+                                .padding(.horizontal, 5).padding(.vertical, 2)
+                                .background(DS.brand.opacity(0.18), in: RoundedRectangle(cornerRadius: 4))
+                                .foregroundStyle(DS.brand)
+                        }
+                    }
+                    HStack {
+                        Text("Low").font(.caption).foregroundStyle(.secondary).frame(width: 36, alignment: .leading)
+                        Slider(value: $lowDraft, in: 5...80, step: 1) { _ in saveRange() }
+                        Text("\(Int(lowDraft))%").font(.caption).monospacedDigit().frame(width: 40, alignment: .trailing)
+                    }
+                    HStack {
+                        Text("High").font(.caption).foregroundStyle(.secondary).frame(width: 36, alignment: .leading)
+                        Slider(value: $highDraft, in: 20...95, step: 1) { _ in saveRange() }
+                        Text("\(Int(highDraft))%").font(.caption).monospacedDigit().frame(width: 40, alignment: .trailing)
+                    }
+                    if reading.customRange {
+                        Button("Reset to species default") { prefs.clearOverride(plantId) }
+                            .font(.caption)
+                            .foregroundStyle(DS.brandLight)
+                    }
+                }
+
+                // ── Per-plant notification toggle ────────────────────
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("ALERTS FOR THIS PLANT")
+                        .font(.system(size: 11, weight: .semibold))
+                        .tracking(0.6)
+                        .foregroundStyle(.secondary)
+                    Toggle(notifyOn ? "On" : "Off", isOn: $notifyOn)
+                        .tint(DS.brand)
+                        .onChange(of: notifyOn) { _, on in
+                            Task {
+                                if on { _ = await prefs.requestAuthorization() }
+                                prefs.setNotifyOn(plantId, on)
+                            }
+                        }
+                    Group {
+                        if prefs.notifyMode == .off {
+                            Text("Global notifications are off — enable them in the gear menu.")
+                        } else {
+                            Text("Will alert when " +
+                                 (prefs.notifyMode == .both ? "too dry or too wet" :
+                                  prefs.notifyMode == .dry  ? "too dry" : "too wet") + ".")
+                        }
+                    }
+                    .font(.caption).foregroundStyle(.secondary)
+                }
             }
             .padding(20)
         }
         .presentationDetents([.medium, .large])
+        .onAppear {
+            lowDraft  = Double(reading.idealLow)
+            highDraft = Double(reading.idealHigh)
+            notifyOn  = prefs.isNotifyOn(plantId)
+        }
+    }
+
+    private func saveRange() {
+        if lowDraft >= highDraft { lowDraft = highDraft - 1 }
+        prefs.setOverride(plantId, low: Int(lowDraft), high: Int(highDraft))
     }
     private func sec(_ label: String, body: String) -> some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -385,6 +473,71 @@ private struct ErrorView: View {
                 .tint(DS.brand)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+/// Global notification settings sheet (gear icon in toolbar).
+private struct SettingsSheet: View {
+    @EnvironmentObject private var prefs: Preferences
+    @Environment(\.dismiss) private var dismiss
+    @State private var authStatus: UNAuthorizationStatus = .notDetermined
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("When to alert") {
+                    ForEach(Preferences.NotifyMode.allCases) { mode in
+                        Button {
+                            Task {
+                                if mode != .off { _ = await prefs.requestAuthorization() }
+                                prefs.setNotifyMode(mode)
+                                await refreshAuth()
+                            }
+                        } label: {
+                            HStack {
+                                Text(mode.label).foregroundStyle(.primary)
+                                Spacer()
+                                if prefs.notifyMode == mode {
+                                    Image(systemName: "checkmark").foregroundStyle(DS.brand)
+                                }
+                            }
+                        }
+                    }
+                }
+                Section {
+                    HStack {
+                        Text("Notification permission")
+                        Spacer()
+                        Text(authLabel).foregroundStyle(.secondary)
+                    }
+                } footer: {
+                    Text("Per-plant toggles live in each plant's info panel — tap the ⓘ on a card. Alerts fire when the app is open or recently active.")
+                }
+            }
+            .navigationTitle("Notifications")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Done") { dismiss() }
+                }
+            }
+        }
+        .task { await refreshAuth() }
+    }
+
+    private var authLabel: String {
+        switch authStatus {
+        case .authorized:    return "Granted"
+        case .denied:        return "Denied — enable in iOS Settings"
+        case .provisional:   return "Provisional"
+        case .notDetermined: return "Not requested yet"
+        case .ephemeral:     return "Ephemeral"
+        @unknown default:    return "Unknown"
+        }
+    }
+    @MainActor
+    private func refreshAuth() async {
+        authStatus = await UNUserNotificationCenter.current().notificationSettings().authorizationStatus
     }
 }
 
