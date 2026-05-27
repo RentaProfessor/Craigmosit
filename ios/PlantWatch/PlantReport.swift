@@ -86,6 +86,8 @@ struct Reading: Decodable, Identifiable {
     let headline:               String
     let advice:                 String
     let speciesNote:            String?
+    let sourceLabel:            String?
+    let sourceUrl:              String?
     let needsWater:             Bool
     let ratingExplanation:      String?
     let wateringRecommendation: String?
@@ -100,6 +102,8 @@ struct Reading: Decodable, Identifiable {
         case idealLow                = "ideal_low"
         case idealHigh               = "ideal_high"
         case speciesNote             = "species_note"
+        case sourceLabel             = "source_label"
+        case sourceUrl               = "source_url"
         case needsWater              = "needs_water"
         case ratingExplanation       = "rating_explanation"
         case wateringRecommendation  = "watering_recommendation"

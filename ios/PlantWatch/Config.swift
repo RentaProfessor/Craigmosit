@@ -13,5 +13,5 @@ enum Config {
     static let anonKey: String? = nil
 
     /// Auto-refresh while the app is foregrounded.
-    static let autoRefreshInterval: TimeInterval = 5 * 60
+    static let autoRefreshInterval: TimeInterval = 60
 }

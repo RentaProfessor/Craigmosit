@@ -608,6 +608,17 @@ body::before {
   line-height: 1.5;
   color: var(--ink-2);
 }
+.info-source {
+  margin-top: 4px;
+  font-size: 11.5px;
+  color: var(--ink-3);
+}
+.info-source a {
+  color: var(--brand-2);
+  text-decoration: none;
+  border-bottom: 1px dotted var(--brand-2);
+}
+.info-source a:hover { color: var(--brand); border-bottom-style: solid; }
 .card--info-open {
   box-shadow: var(--shadow-md);
 }

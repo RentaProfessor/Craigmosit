@@ -173,10 +173,13 @@
   }
 
   function renderInfoPanel(r) {
+    const sourceLink = (r.source_label && r.source_url)
+      ? `<div class="info-source">Source: <a href="${escape(r.source_url)}" target="_blank" rel="noopener">${escape(r.source_label)}</a></div>`
+      : "";
     const sections = [
       r.rating_explanation ? `<div class="info-section"><div class="info-label">Why this rating</div><div class="info-text">${escape(r.rating_explanation)}</div></div>` : "",
       r.watering_recommendation ? `<div class="info-section"><div class="info-label">Suggested watering</div><div class="info-text">${escape(r.watering_recommendation)}</div></div>` : "",
-      r.species_note ? `<div class="info-section"><div class="info-label">Why ${escape(r.species)} needs this range</div><div class="info-text">${escape(r.species_note)}</div></div>` : "",
+      r.species_note ? `<div class="info-section"><div class="info-label">Why ${escape(r.species)} needs this range</div><div class="info-text">${escape(r.species_note)}</div>${sourceLink}</div>` : "",
     ].filter(Boolean).join("");
     return `<div class="info-panel">${sections}</div>`;
   }
@@ -374,7 +377,7 @@
     stopAutoRefresh();
     refreshTimer = setInterval(() => {
       if (!document.hidden) load();
-    }, 5 * 60 * 1000); // every 5 minutes
+    }, 60 * 1000); // every 60 seconds
   }
   function stopAutoRefresh() {
     if (refreshTimer) { clearInterval(refreshTimer); refreshTimer = null; }

@@ -232,7 +232,28 @@ private struct InfoSheet: View {
                     sec("Suggested watering", body: "None — in range.")
                 }
                 if let note = reading.speciesNote {
-                    sec("Why \(reading.species) needs this range", body: note)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("WHY \(reading.species.uppercased()) NEEDS THIS RANGE")
+                            .font(.system(size: 11, weight: .semibold))
+                            .tracking(0.6)
+                            .foregroundStyle(.secondary)
+                        Text(note)
+                            .font(.subheadline)
+                            .foregroundStyle(.primary)
+                            .fixedSize(horizontal: false, vertical: true)
+                        if let label = reading.sourceLabel, let urlStr = reading.sourceUrl, let url = URL(string: urlStr) {
+                            Link(destination: url) {
+                                HStack(spacing: 4) {
+                                    Image(systemName: "link")
+                                        .font(.system(size: 10, weight: .semibold))
+                                    Text("Source: \(label)")
+                                        .font(.caption)
+                                }
+                                .foregroundStyle(DS.brandLight)
+                                .padding(.top, 2)
+                            }
+                        }
+                    }
                 }
             }
             .padding(20)
