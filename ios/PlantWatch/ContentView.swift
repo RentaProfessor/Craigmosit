@@ -132,9 +132,14 @@ private struct ReportScrollView: View {
 
                 HeroCardView(report: report)
 
+                // On iPhone the chip row + layout toggle can crowd. Let the chips
+                // scroll horizontally if needed; layout toggle stays anchored right.
                 HStack(spacing: 12) {
-                    ZoneFilterRow(filter: $filter, counts: zoneCounts)
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        ZoneFilterRow(filter: $filter, counts: zoneCounts)
+                    }
                     LayoutToggle(layoutRaw: $layoutRaw)
+                        .fixedSize()
                 }
 
                 ForEach(zones, id: \.zone) { group in
@@ -154,8 +159,9 @@ private struct ReportScrollView: View {
                         .padding(.top, 8)
 
                         if layout == .grid {
-                            LazyVGrid(columns: [GridItem(.flexible(), spacing: 12),
-                                                GridItem(.flexible(), spacing: 12)], spacing: 12) {
+                            // Adaptive: 1 col on iPhone, 2 col on iPad portrait, 3 col on iPad landscape.
+                            // Cards need ~320pt of width to render their content cleanly.
+                            LazyVGrid(columns: [GridItem(.adaptive(minimum: 320), spacing: 12)], spacing: 12) {
                                 ForEach(group.readings) { r in
                                     PlantCardView(reading: r, onInfoTap: { onInfoTap(r) })
                                 }

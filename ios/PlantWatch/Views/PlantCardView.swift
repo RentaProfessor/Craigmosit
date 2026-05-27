@@ -60,6 +60,8 @@ struct PlantCardView: View {
                         .font(.system(size: 15.5, weight: .semibold))
                         .lineLimit(1)
                         .truncationMode(.tail)
+                        .minimumScaleFactor(0.85)
+                        .layoutPriority(1)
                     if !reading.verified {
                         Text("UNVERIFIED")
                             .font(.system(size: 9, weight: .semibold))
