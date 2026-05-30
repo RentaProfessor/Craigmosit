@@ -170,6 +170,14 @@
     return new Date(iso).toLocaleDateString();
   };
 
+  const absTime = (iso) => {
+    try {
+      return new Date(iso).toLocaleString(undefined, {
+        weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit",
+      });
+    } catch { return iso; }
+  };
+
   const escape = (s) => String(s ?? "").replace(/[&<>"']/g, (c) =>
     ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
@@ -302,9 +310,20 @@
         </div>
       </div>
       ${moistureBlock}
-      <div class="advice">${escape(r.advice)}</div>
+      ${r.status === "no_reading" && r.last_seen
+        ? `<div class="last-seen">⏱ Last seen ${escape(relTime(r.last_seen))}</div>` : ""}
+      <div class="advice">${escape(adviceText(r))}</div>
       ${infoPanel}
     </article>`;
+  }
+
+  // Advice line; for offline sensors lead with last-seen + only an honest cause.
+  function adviceText(r) {
+    if (r.status === "no_reading") {
+      const seen = r.last_seen ? `Last reported ${relTime(r.last_seen)}. ` : "";
+      return seen + (r.offline_cause || "Not reporting — check the sensor (battery contact or signal range).");
+    }
+    return r.advice;
   }
 
   function renderInfoPanel(r) {
@@ -312,8 +331,14 @@
     const sourceLink = (r.source_label && r.source_url)
       ? `<div class="info-source">Source: <a href="${escape(r.source_url)}" target="_blank" rel="noopener">${escape(r.source_label)}</a></div>`
       : "";
+    const offlineSection = (r.status === "no_reading")
+      ? `<div class="info-section"><div class="info-label">Sensor status</div><div class="info-text">${
+          r.last_seen ? `Last reported <strong>${escape(absTime(r.last_seen))}</strong> (${escape(relTime(r.last_seen))}).` : "No recent reports found."
+        }${r.offline_cause ? " " + escape(r.offline_cause) : " Battery state can't be read while it's offline, so the cause is unconfirmed — most likely a battery-contact or signal/range issue."}</div></div>`
+      : "";
     const sections = [
-      r.rating_explanation ? `<div class="info-section"><div class="info-label">Why this rating</div><div class="info-text">${escape(r.rating_explanation)}</div></div>` : "",
+      offlineSection,
+      r.rating_explanation && r.status !== "no_reading" ? `<div class="info-section"><div class="info-label">Why this rating</div><div class="info-text">${escape(r.rating_explanation)}</div></div>` : "",
       r.watering_recommendation ? `<div class="info-section"><div class="info-label">Suggested watering</div><div class="info-text">${escape(r.watering_recommendation)}</div></div>` : "",
       r.species_note ? `<div class="info-section"><div class="info-label">Why ${escape(r.species || "this plant")} needs this range</div><div class="info-text">${escape(r.species_note)}</div>${sourceLink}</div>` : "",
       renderZonePicker(r, id),

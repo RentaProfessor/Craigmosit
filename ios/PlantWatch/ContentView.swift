@@ -334,7 +334,15 @@ private struct InfoSheet: View {
                 }
             }
 
-            if let why = reading.ratingExplanation { sec("Why this rating", body: why) }
+            if reading.status == .noReading {
+                let when = reading.lastSeenAbsolute.map { abs in
+                    "Last reported \(abs)" + (reading.lastSeenRelative.map { " (\($0))" } ?? "") + "."
+                } ?? "No recent reports found."
+                let cause = reading.offlineCause
+                    ?? "Battery state can't be read while it's offline, so the cause is unconfirmed — most likely a battery-contact or signal/range issue."
+                sec("Sensor status", body: when + " " + cause)
+            }
+            if let why = reading.ratingExplanation, reading.status != .noReading { sec("Why this rating", body: why) }
             if let rec = reading.wateringRecommendation { sec("Suggested watering", body: rec) }
             else if reading.status == .good { sec("Suggested watering", body: "None — in range.") }
 

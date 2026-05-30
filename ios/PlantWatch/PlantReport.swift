@@ -141,6 +141,8 @@ struct Reading: Decodable, Identifiable {
     var ratingExplanation:      String?
     let wateringRecommendation: String?
     let wateringTargetPct:      Int?
+    let lastSeen:               String?   // ISO timestamp of last valid reading (offline sensors)
+    let offlineCause:           String?
     /// True if the user has set a custom range overriding the species default.
     var customRange:            Bool = false
     /// True if the user has moved this plant to a different physical zone.
@@ -161,5 +163,26 @@ struct Reading: Decodable, Identifiable {
         case ratingExplanation       = "rating_explanation"
         case wateringRecommendation  = "watering_recommendation"
         case wateringTargetPct       = "watering_target_pct"
+        case lastSeen                = "last_seen"
+        case offlineCause            = "offline_cause"
+    }
+
+    private static let isoFractional: ISO8601DateFormatter = {
+        let f = ISO8601DateFormatter(); f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]; return f
+    }()
+    private static let isoPlain = ISO8601DateFormatter()
+
+    var lastSeenDate: Date? {
+        guard let iso = lastSeen else { return nil }
+        return Reading.isoFractional.date(from: iso) ?? Reading.isoPlain.date(from: iso)
+    }
+    /// "Last seen 2 hours ago" style string for offline sensors.
+    var lastSeenRelative: String? { lastSeenDate?.relative() }
+    /// Absolute "Sat, May 30, 5:30 PM" style.
+    var lastSeenAbsolute: String? {
+        guard let d = lastSeenDate else { return nil }
+        let f = DateFormatter()
+        f.dateFormat = "EEE, MMM d, h:mm a"
+        return f.string(from: d)
     }
 }

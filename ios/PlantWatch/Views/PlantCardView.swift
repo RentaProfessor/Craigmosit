@@ -5,6 +5,14 @@ struct PlantCardView: View {
     let reading: Reading
     var onInfoTap: (() -> Void)? = nil
 
+    // For offline sensors lead with the honest cause; otherwise the normal advice.
+    private var cardAdvice: String {
+        if reading.status == .noReading {
+            return reading.offlineCause ?? "Not reporting — check the sensor (battery contact or signal range)."
+        }
+        return reading.advice
+    }
+
     var body: some View {
         HStack(spacing: 0) {
             // Status stripe
@@ -24,8 +32,15 @@ struct PlantCardView: View {
                     Text("No reading")
                         .font(.system(size: 17, weight: .medium))
                         .foregroundStyle(.secondary)
+                    if let seen = reading.lastSeenRelative {
+                        HStack(spacing: 4) {
+                            Image(systemName: "clock").font(.system(size: 10, weight: .semibold))
+                            Text("Last seen \(seen)").font(.system(size: 12.5, weight: .semibold))
+                        }
+                        .foregroundStyle(.secondary)
+                    }
                 }
-                Text(reading.advice)
+                Text(cardAdvice)
                     .font(.system(size: 13.5))
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)

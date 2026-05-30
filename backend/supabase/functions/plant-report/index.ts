@@ -161,6 +161,49 @@ async function getGw(mac) {
   return j.data || {};
 }
 
+// Format a Date as Ecowitt expects ("YYYY-MM-DD HH:MM:SS" in the device tz).
+function laStamp(d) {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Los_Angeles", year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false,
+  }).formatToParts(d);
+  const g = (t) => parts.find((p) => p.type === t).value;
+  return `${g("year")}-${g("month")}-${g("day")} ${g("hour")}:${g("minute")}:${g("second")}`;
+}
+
+// Most recent valid timestamp for a channel within a window (ISO) or null.
+async function lastValidTs(mac, ch, days) {
+  try {
+    const end = new Date();
+    const start = new Date(end.getTime() - days * 24 * 3600 * 1000);
+    const url = `https://api.ecowitt.net/api/v3/device/history` +
+      `?application_key=${getEnv("ECOWITT_APP_KEY")}&api_key=${getEnv("ECOWITT_API_KEY")}` +
+      `&mac=${encodeURIComponent(mac)}` +
+      `&start_date=${encodeURIComponent(laStamp(start))}&end_date=${encodeURIComponent(laStamp(end))}` +
+      `&cycle_type=auto&call_back=soil_ch${ch}`;
+    const r = await fetch(url);
+    if (!r.ok) return null;
+    const j = await r.json();
+    const list = j?.data?.["soil_ch" + ch]?.soilmoisture?.list || {};
+    let lastTs = null;
+    for (const k of Object.keys(list)) {
+      const v = list[k];
+      if (v !== null && v !== "-" && v !== "") {
+        const t = parseInt(k, 10);
+        if (Number.isFinite(t) && (lastTs === null || t > lastTs)) lastTs = t;
+      }
+    }
+    return lastTs ? new Date(lastTs * 1000).toISOString() : null;
+  } catch { return null; }
+}
+
+// Authoritative last-seen from Ecowitt history. A short window keeps the
+// resolution fine (precise to the half-hour) for recently-dropped sensors;
+// fall back to a wider, coarser window only for ones down longer.
+async function getLastSeen(mac, ch) {
+  return (await lastValidTs(mac, ch, 3)) || (await lastValidTs(mac, ch, 90));
+}
+
 async function getWx() {
   try {
     const r = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${getEnv("WEATHER_LAT")}&longitude=${getEnv("WEATHER_LON")}&current=temperature_2m,relative_humidity_2m&daily=temperature_2m_max,temperature_2m_min,precipitation_sum,relative_humidity_2m_min&timezone=America/Los_Angeles&forecast_days=2&temperature_unit=fahrenheit&precipitation_unit=inch`);
@@ -290,6 +333,7 @@ Deno.serve(async (req) => {
           rating_explanation: "Sensor isn't reporting — nothing to evaluate.",
           watering_recommendation: null,
           watering_target_pct: null,
+          last_seen: null, last_battery: null, offline_cause: null,
         };
       }
       const a = advise(p, moisture);
@@ -306,8 +350,24 @@ Deno.serve(async (req) => {
         rating_explanation: ratingExplanation(p, moisture, a.status),
         watering_recommendation: plan ? plan.text : null,
         watering_target_pct: plan ? plan.target_pct : null,
+        last_seen: null, last_battery: null, offline_cause: null,
       };
     });
+
+    // Enrich offline sensors with their last-seen time from Ecowitt history.
+    // We do NOT assert a cause we can't prove — battery state is unknown while a
+    // sensor is offline, so we report last-seen and stay neutral on the reason.
+    const macFor = {
+      "Back Yard":  getEnv("ECOWITT_MAC_BACKYARD"),
+      "Side Yards": getEnv("ECOWITT_MAC_SIDEYARDS"),
+      "Front Yard": getEnv("ECOWITT_MAC_FRONTYARD"),
+    };
+    const offlineReadings = readings.filter(r => r.status === "no_reading");
+    await Promise.all(offlineReadings.map(async (r) => {
+      const mac = macFor[r.zone];
+      if (!mac) return;
+      r.last_seen = await getLastSeen(mac, r.channel);
+    }));
 
 
 
