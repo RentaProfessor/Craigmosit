@@ -100,4 +100,27 @@ final class Auth: ObservableObject {
         if Date().timeIntervalSince1970 > expMs - 60 { if !(await refresh()) { return nil } }
         return session?.access_token
     }
+
+    var userId: String? { session?.user.id }
+
+    /// Authenticated request to a Supabase path (e.g. "rest/v1/plants",
+    /// "functions/v1/ecowitt-devices"). RLS scopes DB calls to this user.
+    @discardableResult
+    func authed(_ path: String, method: String = "GET", json body: Any? = nil, prefer: String? = nil) async throws -> Data {
+        guard let token = await accessToken() else { throw AuthError.message("Not signed in") }
+        var req = URLRequest(url: URL(string: "\(Config.supabaseUrl)/\(path)")!)
+        req.httpMethod = method
+        req.setValue(Config.supabaseAnonKey, forHTTPHeaderField: "apikey")
+        req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        if let prefer { req.setValue(prefer, forHTTPHeaderField: "Prefer") }
+        if let body { req.httpBody = try JSONSerialization.data(withJSONObject: body) }
+        let (data, resp) = try await URLSession.shared.data(for: req)
+        let code = (resp as? HTTPURLResponse)?.statusCode ?? 500
+        if code >= 400 {
+            let txt = String(data: data, encoding: .utf8) ?? ""
+            throw AuthError.message(txt.isEmpty ? "Server error \(code)" : txt)
+        }
+        return data
+    }
 }
