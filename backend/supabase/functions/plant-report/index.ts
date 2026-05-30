@@ -130,6 +130,7 @@ const PLANTS = [
   {zone:"Side Yards",ch:4,display:3, name:"Rosemary Cook Center Hill",        p:"rosemary",    verified:true, physical:"Side Yards", physical_verified:true},
   {zone:"Side Yards",ch:7,display:4, name:"Bay Laurel Behind Spit",           p:"bay_laurel",  verified:true, physical:"Side Yards", physical_verified:true},
   {zone:"Side Yards",ch:8,display:5, name:"Westringia Office",                p:"westringia",  verified:true, physical:"Side Yards", physical_verified:true},
+  {zone:"Side Yards",ch:3,display:6, name:"Bay Laurel Cabana",                p:"bay_laurel",  verified:true, physical:"Side Yards", physical_verified:true},
 
   // ── FRONT YARD gateway (new May 27 2026) — 4 plants confirmed by user
   {zone:"Front Yard",ch:1,display:1, name:"Camelia",            p:"camellia",  verified:true, physical:"Front Yard", physical_verified:true},
@@ -141,7 +142,7 @@ const PLANTS = [
 // Sensors physically retired/re-paired — hide completely (not even "Unassigned").
 // Camelia/Lavender/Boxwood re-paired from the Side Yards gateway to Front Yard;
 // their old Side Yards channels may still echo stale values for a while.
-const RETIRED = new Set(["Side Yards-1", "Side Yards-3", "Side Yards-6"]);
+const RETIRED = new Set(["Side Yards-1", "Side Yards-6"]);
 
 // Default physical zone for each gateway (used for unassigned sensors).
 const GATEWAY_PHYSICAL = { "Back Yard": "Back Yard", "Side Yards": "Side Yards", "Front Yard": "Front Yard" };
