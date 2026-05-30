@@ -9,6 +9,7 @@ final class Preferences: ObservableObject {
 
     @Published var overrides:     [String: Override] = [:]
     @Published var zoneOverrides: [String: String]  = [:]   // id → "Back Yard" / "Side Yards" / "Front Yard"
+    @Published var zoneOrder:     [String: [String]] = [:]  // zone → [id, id, ...] custom drag order
     @Published var notifyMode:    NotifyMode         = .off
     @Published var notifyPlants:  Set<String>        = []
     @Published var lastStatus:    [String: String]   = [:]
@@ -35,6 +36,7 @@ final class Preferences: ObservableObject {
 
     private let kOverrides    = "pw-overrides"
     private let kZones        = "pw-zone-overrides"
+    private let kOrder        = "pw-order"
     private let kNotifyMode   = "pw-notify-mode"
     private let kNotifyPlants = "pw-notify-plants"
     private let kLastStatus   = "pw-last-status"
@@ -47,6 +49,8 @@ final class Preferences: ObservableObject {
            let m = try? JSONDecoder().decode([String: Override].self, from: data) { overrides = m }
         if let data = d.data(forKey: kZones),
            let m = try? JSONDecoder().decode([String: String].self, from: data) { zoneOverrides = m }
+        if let data = d.data(forKey: kOrder),
+           let m = try? JSONDecoder().decode([String: [String]].self, from: data) { zoneOrder = m }
         if let raw = d.string(forKey: kNotifyMode), let m = NotifyMode(rawValue: raw) { notifyMode = m }
         if let arr = d.array(forKey: kNotifyPlants) as? [String] { notifyPlants = Set(arr) }
         if let data = d.data(forKey: kLastStatus),
@@ -74,6 +78,24 @@ final class Preferences: ObservableObject {
     func clearZone(_ id: String) {
         zoneOverrides.removeValue(forKey: id)
         saveZones()
+    }
+
+    private func saveOrder() { if let d = try? JSONEncoder().encode(zoneOrder) { UserDefaults.standard.set(d, forKey: kOrder) } }
+
+    /// Sort key for a plant id within its zone (unlisted → large).
+    func orderIndex(_ zone: String, _ id: String) -> Int {
+        guard let arr = zoneOrder[zone], let i = arr.firstIndex(of: id) else { return Int.max }
+        return i
+    }
+    /// Move `dragged` to where `target` is, within the given displayed id order.
+    func reorder(zone: String, dragged: String, target: String, currentOrder: [String]) {
+        var ids = currentOrder
+        guard let from = ids.firstIndex(of: dragged), let to = ids.firstIndex(of: target), from != to else { return }
+        ids.remove(at: from)
+        let insertAt = ids.firstIndex(of: target) ?? ids.count
+        ids.insert(dragged, at: from < to ? insertAt + 1 : insertAt)
+        zoneOrder[zone] = ids
+        saveOrder()
     }
     func setNotifyOn(_ id: String, _ on: Bool) {
         if on { notifyPlants.insert(id) } else { notifyPlants.remove(id) }

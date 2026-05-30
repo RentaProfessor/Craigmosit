@@ -27,6 +27,24 @@
   const setZoneOverride  = (id, zone) => { const o = getZoneOverrides(); o[id] = zone; lsWrite(PREF.zones, o); };
   const clearZoneOverride= (id) => { const o = getZoneOverrides(); delete o[id]; lsWrite(PREF.zones, o); };
 
+  // Custom drag order per displayed zone: { "Back Yard": [id, id, ...] }
+  const getOrders = () => lsRead("pw-order", {});
+  const setOrder  = (zone, ids) => { const o = getOrders(); o[zone] = ids; lsWrite("pw-order", o); };
+
+  // Sort a zone's readings by the user's saved order; unlisted go last by display_order.
+  function sortByCustomOrder(zone, readings) {
+    const order = getOrders()[zone] || [];
+    const idx = (r) => {
+      const i = order.indexOf(`${r.zone}-${r.channel}`);
+      return i === -1 ? Number.MAX_SAFE_INTEGER : i;
+    };
+    return readings.slice().sort((a, b) => {
+      const d = idx(a) - idx(b);
+      if (d !== 0) return d;
+      return (a.display_order ?? a.channel) - (b.display_order ?? b.channel);
+    });
+  }
+
   const ZONES = ["Back Yard", "Side Yards", "Front Yard"];
 
   const getNotifyMode    = () => localStorage.getItem(PREF.notifyMode) || "off";
@@ -278,6 +296,9 @@
               <circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><circle cx="12" cy="8" r=".5" fill="currentColor" stroke="currentColor"/>
             </svg>
           </button>
+          <button class="drag-handle" aria-label="Drag to reorder" title="Drag to reorder">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><circle cx="9" cy="6" r="1.6"/><circle cx="15" cy="6" r="1.6"/><circle cx="9" cy="12" r="1.6"/><circle cx="15" cy="12" r="1.6"/><circle cx="9" cy="18" r="1.6"/><circle cx="15" cy="18" r="1.6"/></svg>
+          </button>
         </div>
       </div>
       ${moistureBlock}
@@ -421,13 +442,14 @@
       if (zoneFilter !== "all" && zoneFilter !== z) continue;
       const cnt = zones[z].length;
       const noun = "plant";
+      const sorted = sortByCustomOrder(z, zones[z]);
       html += `
         <section class="zone">
           <div class="zone-head">
             <h2>${escape(z)}</h2>
             <span class="zone-count">${cnt} ${noun}${cnt === 1 ? "" : "s"}</span>
           </div>
-          <div class="grid grid--${layoutMode}">${zones[z].map(renderCard).join("")}</div>
+          <div class="grid grid--${layoutMode}" data-zone="${escape(z)}">${sorted.map(renderCard).join("")}</div>
         </section>`;
     }
     for (const [k, note] of Object.entries(data.pair_notes || {})) {
@@ -459,6 +481,9 @@
         renderReport(data);
       });
     });
+
+    // Drag-to-reorder within each zone (pointer events → works on touch + mouse)
+    main.querySelectorAll(".drag-handle").forEach(h => h.addEventListener("pointerdown", startDrag));
 
     // Range editor sliders (debounced save)
     main.querySelectorAll(".range-editor").forEach(ed => {
@@ -539,6 +564,47 @@
     lastData.readings = applyOverrides(rawReadings);
     lastData.counts = recountReadings(lastData.readings);
     renderReport(lastData);
+  }
+
+  /* ── Drag-to-reorder (pointer events; works on touch + mouse) ─────────── */
+  let drag = null;
+  function startDrag(e) {
+    const handle = e.currentTarget;
+    const card = handle.closest(".card");
+    const grid = card?.closest(".grid");
+    if (!card || !grid) return;
+    e.preventDefault();
+    drag = { card, grid, zone: grid.dataset.zone, pointerId: e.pointerId };
+    try { handle.setPointerCapture(e.pointerId); } catch (_) {}
+    card.classList.add("dragging");
+    document.body.classList.add("reordering");
+    handle.addEventListener("pointermove", onDragMove);
+    handle.addEventListener("pointerup", endDrag);
+    handle.addEventListener("pointercancel", endDrag);
+  }
+  function onDragMove(e) {
+    if (!drag) return;
+    e.preventDefault();
+    // Find the card under the pointer within the same grid
+    const under = document.elementFromPoint(e.clientX, e.clientY);
+    const target = under && under.closest(".card");
+    if (!target || target === drag.card || target.parentElement !== drag.grid) return;
+    // Insert dragged card before or after the target based on pointer position
+    const rect = target.getBoundingClientRect();
+    const after = (e.clientY - rect.top) > rect.height / 2;
+    drag.grid.insertBefore(drag.card, after ? target.nextSibling : target);
+  }
+  function endDrag(e) {
+    if (!drag) return;
+    const { grid, zone, card } = drag;
+    card.classList.remove("dragging");
+    document.body.classList.remove("reordering");
+    // Persist new order of ids in this grid
+    const ids = Array.from(grid.querySelectorAll(".card")).map(c => c.dataset.id);
+    setOrder(zone, ids);
+    drag = null;
+    // Re-render so the rest of state (counts, info panels) stays consistent
+    fetchAndRender();
   }
 
   // Global notification settings — opens a small modal anchored to the gear

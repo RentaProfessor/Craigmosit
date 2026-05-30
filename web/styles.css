@@ -848,6 +848,33 @@ body::before {
   color: #fff;
   border-color: var(--brand);
 }
+
+/* ── Drag-to-reorder ───────────────────────────────────────── */
+.drag-handle {
+  appearance: none;
+  background: var(--bg-tint);
+  border: 0;
+  color: var(--ink-3);
+  width: 24px; height: 24px;
+  border-radius: 6px;
+  cursor: grab;
+  display: grid;
+  place-items: center;
+  touch-action: none;          /* let pointer events drive drag, not scroll */
+  flex-shrink: 0;
+}
+.drag-handle:active { cursor: grabbing; }
+.drag-handle:hover  { color: var(--ink); background: var(--brand-tint); }
+.card.dragging {
+  opacity: 0.85;
+  box-shadow: var(--shadow-lg);
+  transform: scale(1.02);
+  cursor: grabbing;
+  z-index: 5;
+  position: relative;
+}
+body.reordering { cursor: grabbing; user-select: none; }
+body.reordering .card:not(.dragging) { transition: transform .15s var(--ease); }
 .card--info-open {
   box-shadow: var(--shadow-md);
 }

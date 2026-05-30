@@ -35,7 +35,9 @@ struct ContentView: View {
                 Color(.systemGroupedBackground).ignoresSafeArea()
 
                 Group {
-                    if let report = svc.report {
+                    if let raw = svc.report {
+                        // Apply local prefs (range / zone) in the view so edits reflect instantly.
+                        let report = raw.applying(prefs)
                         ReportScrollView(
                             report: report, lastLoaded: svc.lastLoaded, nowTick: nowTick,
                             filter: $filter, layoutRaw: $layoutRaw,
@@ -96,6 +98,7 @@ private struct ReportScrollView: View {
     @Binding var filter: ZoneFilter
     @Binding var layoutRaw: String
     let onInfoTap: (Reading) -> Void
+    @ObservedObject private var prefs = Preferences.shared   // observe order/zone changes
 
     private func bucket(_ r: Reading) -> String { r.physicalZone ?? r.zone }
 
@@ -103,9 +106,12 @@ private struct ReportScrollView: View {
         let g = Dictionary(grouping: report.readings, by: bucket)
         return ["Back Yard", "Side Yards", "Front Yard"].compactMap { z in
             guard filter == .all || filter.rawValue == z else { return nil }
-            return g[z].map { (zone: z, readings: $0.sorted {
-                if $0.zone != $1.zone { return $0.zone < $1.zone }
-                return ($0.displayOrder ?? $0.channel) < ($1.displayOrder ?? $1.channel)
+            return g[z].map { (zone: z, readings: $0.sorted { a, b in
+                // Custom drag order first; unlisted fall back to gateway + display order.
+                let ia = prefs.orderIndex(z, a.id), ib = prefs.orderIndex(z, b.id)
+                if ia != ib { return ia < ib }
+                if a.zone != b.zone { return a.zone < b.zone }
+                return (a.displayOrder ?? a.channel) < (b.displayOrder ?? b.channel)
             })}
         }
     }
@@ -161,18 +167,18 @@ private struct ReportScrollView: View {
                         .padding(.horizontal, 4)
                         .padding(.top, 8)
 
+                        let ids = group.readings.map(\.id)
                         if layout == .grid {
                             // Adaptive: 1 col on iPhone, 2 col on iPad portrait, 3 col on iPad landscape.
-                            // Cards need ~320pt of width to render their content cleanly.
                             LazyVGrid(columns: [GridItem(.adaptive(minimum: 320), spacing: 12)], spacing: 12) {
                                 ForEach(group.readings) { r in
-                                    PlantCardView(reading: r, onInfoTap: { onInfoTap(r) })
+                                    reorderableCard(r, zone: group.zone, ids: ids)
                                 }
                             }
                         } else {
                             LazyVStack(spacing: 10) {
                                 ForEach(group.readings) { r in
-                                    PlantCardView(reading: r, onInfoTap: { onInfoTap(r) })
+                                    reorderableCard(r, zone: group.zone, ids: ids)
                                 }
                             }
                         }
@@ -186,6 +192,23 @@ private struct ReportScrollView: View {
             .padding(.horizontal, 16)
             .padding(.bottom, 30)
         }
+    }
+
+    // A card that can be dragged onto another card in the same zone to reorder.
+    @ViewBuilder
+    private func reorderableCard(_ r: Reading, zone: String, ids: [String]) -> some View {
+        PlantCardView(reading: r, onInfoTap: { onInfoTap(r) })
+            .draggable(r.id) {
+                // Drag preview
+                PlantCardView(reading: r)
+                    .frame(width: 300)
+                    .opacity(0.9)
+            }
+            .dropDestination(for: String.self) { items, _ in
+                guard let dragged = items.first, dragged != r.id else { return false }
+                prefs.reorder(zone: zone, dragged: dragged, target: r.id, currentOrder: ids)
+                return true
+            }
     }
 }
 

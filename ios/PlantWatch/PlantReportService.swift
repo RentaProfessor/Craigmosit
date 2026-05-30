@@ -26,14 +26,14 @@ final class PlantReportService: ObservableObject {
             }
             let decoder = JSONDecoder()
             decoder.dateDecodingStrategy = .iso8601
-            var parsed = try decoder.decode(PlantReport.self, from: data)
-            // Apply local overrides BEFORE storing, then recompute counts
-            let prefs = Preferences.shared
-            parsed = parsed.applying(prefs)
+            let parsed = try decoder.decode(PlantReport.self, from: data)
+            // Store the RAW report; prefs (range/zone/order) are applied in the
+            // view layer so edits reflect instantly without a reload.
             self.report = parsed
             self.error = nil
             self.lastLoaded = Date()
-            prefs.notifyIfChanged(parsed.readings)
+            // Notifications evaluate against the prefs-applied snapshot.
+            Preferences.shared.notifyIfChanged(parsed.applying(Preferences.shared).readings)
         } catch {
             self.error = humanize(error)
             if self.report == nil { /* preserve previous data on transient failures */ }
