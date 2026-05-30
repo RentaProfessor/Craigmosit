@@ -318,13 +318,22 @@ private struct InfoSheet: View {
                     Text("CH\(reading.channel) · \(reading.zone)")
                         .font(.system(size: 11)).foregroundStyle(.secondary)
                 }
-                TextField("Plant name", text: $nameDraft)
-                    .textFieldStyle(.roundedBorder)
-                    .submitLabel(.done)
-                    .onSubmit {
-                        let v = nameDraft.trimmingCharacters(in: .whitespaces)
-                        if v.isEmpty { prefs.clearName(plantId) } else { prefs.setName(plantId, v) }
+                HStack(spacing: 8) {
+                    TextField("Plant name", text: $nameDraft)
+                        .textFieldStyle(.roundedBorder)
+                        .submitLabel(.done)
+                        .onSubmit(saveName)
+                    Button(action: saveName) {
+                        Text("Save")
+                            .font(.system(size: 14, weight: .semibold))
+                            .padding(.horizontal, 16).padding(.vertical, 8)
+                            .background(DS.brand, in: RoundedRectangle(cornerRadius: 9))
+                            .foregroundStyle(.white)
+                            .opacity(nameDraft.trimmingCharacters(in: .whitespaces) == reading.name ? 0.4 : 1)
                     }
+                    .buttonStyle(.plain)
+                    .disabled(nameDraft.trimmingCharacters(in: .whitespaces) == reading.name)
+                }
                 if reading.customName {
                     Button("Reset to default name") { prefs.clearName(plantId); dismiss() }
                         .font(.caption).foregroundStyle(DS.brandLight)
@@ -440,6 +449,10 @@ private struct InfoSheet: View {
         }
     }
 
+    private func saveName() {
+        let v = nameDraft.trimmingCharacters(in: .whitespaces)
+        if v.isEmpty { prefs.clearName(plantId) } else { prefs.setName(plantId, v) }
+    }
     private func saveRange() {
         if lowDraft >= highDraft { lowDraft = highDraft - 1 }
         prefs.setOverride(plantId, low: Int(lowDraft), high: Int(highDraft))

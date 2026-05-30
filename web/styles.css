@@ -835,6 +835,26 @@ body::before {
 .assign-save-btn:active { transform: scale(0.98); }
 .unassign-btn { color: var(--bad); font-size: 12px; padding: 4px 0; }
 
+/* ── Name editor ───────────────────────────────────────────── */
+.name-row { display: flex; gap: 8px; align-items: stretch; }
+.name-row .text-input { flex: 1 1 auto; }
+.name-save-btn {
+  appearance: none;
+  border: 0;
+  background: var(--brand);
+  color: #fff;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 0 16px;
+  border-radius: 9px;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: opacity .15s var(--ease), transform .1s var(--ease);
+}
+.name-save-btn:active { transform: scale(0.97); }
+.name-save-btn:disabled { opacity: 0.4; cursor: default; }
+
 /* ── Zone picker (move plant between yards) ─────────────────── */
 .zone-picker {
   display: flex;

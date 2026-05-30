@@ -363,7 +363,10 @@
       : "";
     const nameSection = `<div class="info-section">
       <div class="info-label">Name ${r.custom_name ? `<span class="custom-badge">Custom</span>` : ""} <span class="ch-tag">CH${r.channel} · ${escape(r.zone)}</span></div>
-      <input type="text" class="name-input text-input" data-plant-id="${escape(id)}" value="${escape(r.name)}" placeholder="Plant name" />
+      <div class="name-row">
+        <input type="text" class="name-input text-input" data-plant-id="${escape(id)}" value="${escape(r.name)}" placeholder="Plant name" />
+        <button class="name-save-btn" data-plant-id="${escape(id)}" disabled>Save</button>
+      </div>
       ${r.custom_name ? `<button class="link-btn reset-name-btn" data-plant-id="${escape(id)}">Reset to default name</button>` : ""}
     </div>`;
     const sections = [
@@ -570,18 +573,22 @@
       });
     });
 
-    // Name editor — rename a plant (saved on blur / Enter)
+    // Name editor — rename a plant via an explicit Save button.
     main.querySelectorAll(".name-input").forEach(inp => {
-      const id = inp.dataset.plantId;
+      const id  = inp.dataset.plantId;
       const srv = (rawReadings || []).find(x => `${x.zone}-${x.channel}` === id);
+      const btn = inp.parentElement.querySelector(".name-save-btn");
+      const original = inp.value;
       const save = () => {
         const v = inp.value.trim();
         if (!v || (srv && v === srv.name)) clearNameOverride(id);
         else setNameOverride(id, v);
         fetchAndRender();
       };
-      inp.addEventListener("blur", save);
-      inp.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); inp.blur(); } });
+      // Enable Save only when the text actually changed.
+      inp.addEventListener("input", () => { if (btn) btn.disabled = (inp.value === original); });
+      inp.addEventListener("keydown", (e) => { if (e.key === "Enter" && btn && !btn.disabled) { e.preventDefault(); save(); } });
+      if (btn) btn.addEventListener("click", save);
     });
     main.querySelectorAll(".reset-name-btn").forEach(b => {
       b.addEventListener("click", () => { clearNameOverride(b.dataset.plantId); fetchAndRender(); });
