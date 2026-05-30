@@ -251,6 +251,7 @@ private struct InfoSheet: View {
     @State private var lowDraft: Double = 0
     @State private var highDraft: Double = 0
     @State private var notifyOn: Bool = false
+    @State private var nameDraft: String = ""
     private var plantId: String { "\(reading.zone)-\(reading.channel)" }
     /// The plant's home (gateway) zone — what clearing the override reverts to.
     private var serverZone: String { reading.zone }
@@ -268,6 +269,7 @@ private struct InfoSheet: View {
             lowDraft  = Double(reading.idealLow ?? 30)
             highDraft = Double(reading.idealHigh ?? 50)
             notifyOn  = prefs.isNotifyOn(plantId)
+            nameDraft = reading.name
         }
     }
 
@@ -302,6 +304,33 @@ private struct InfoSheet: View {
     // MARK: details
     private var details: some View {
         VStack(alignment: .leading, spacing: 18) {
+            // Editable name + channel reference.
+            VStack(alignment: .leading, spacing: 6) {
+                HStack {
+                    Text("NAME").font(.system(size: 11, weight: .semibold)).tracking(0.6).foregroundStyle(.secondary)
+                    if reading.customName {
+                        Text("CUSTOM").font(.system(size: 9, weight: .bold)).tracking(0.5)
+                            .padding(.horizontal, 5).padding(.vertical, 2)
+                            .background(DS.brand.opacity(0.18), in: RoundedRectangle(cornerRadius: 4))
+                            .foregroundStyle(DS.brand)
+                    }
+                    Spacer()
+                    Text("CH\(reading.channel) · \(reading.zone)")
+                        .font(.system(size: 11)).foregroundStyle(.secondary)
+                }
+                TextField("Plant name", text: $nameDraft)
+                    .textFieldStyle(.roundedBorder)
+                    .submitLabel(.done)
+                    .onSubmit {
+                        let v = nameDraft.trimmingCharacters(in: .whitespaces)
+                        if v.isEmpty { prefs.clearName(plantId) } else { prefs.setName(plantId, v) }
+                    }
+                if reading.customName {
+                    Button("Reset to default name") { prefs.clearName(plantId); dismiss() }
+                        .font(.caption).foregroundStyle(DS.brandLight)
+                }
+            }
+
             // Location picker — move the plant between yards.
             // Read the CURRENT zone live from prefs so the highlight updates on tap.
             let currentZone = prefs.zoneOverrides[plantId] ?? serverZone

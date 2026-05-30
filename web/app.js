@@ -27,6 +27,11 @@
   const setZoneOverride  = (id, zone) => { const o = getZoneOverrides(); o[id] = zone; lsWrite(PREF.zones, o); };
   const clearZoneOverride= (id) => { const o = getZoneOverrides(); delete o[id]; lsWrite(PREF.zones, o); };
 
+  // Per-plant custom display name.
+  const getNameOverrides = () => lsRead("pw-name-overrides", {});
+  const setNameOverride  = (id, name) => { const o = getNameOverrides(); o[id] = name; lsWrite("pw-name-overrides", o); };
+  const clearNameOverride= (id) => { const o = getNameOverrides(); delete o[id]; lsWrite("pw-name-overrides", o); };
+
   // Custom drag order per displayed zone: { "Back Yard": [id, id, ...] }
   const getOrders = () => lsRead("pw-order", {});
   const setOrder  = (zone, ids) => { const o = getOrders(); o[zone] = ids; lsWrite("pw-order", o); };
@@ -66,9 +71,16 @@
   function applyOverrides(readings) {
     const ov = getOverrides();
     const zo = getZoneOverrides();
+    const no = getNameOverrides();
     return readings.map(r => {
       const id = `${r.zone}-${r.channel}`;
-      let out = { ...r, custom_range: false, custom_zone: false };
+      let out = { ...r, custom_range: false, custom_zone: false, custom_name: false };
+
+      // Custom display name
+      if (no[id] && no[id] !== r.name) {
+        out.name = no[id];
+        out.custom_name = true;
+      }
 
       // Physical-zone override (move a plant between yards)
       if (zo[id] && zo[id] !== r.physical_zone) {
@@ -349,7 +361,13 @@
           r.last_seen ? `Last reported <strong>${escape(absTime(r.last_seen))}</strong> (${escape(relTime(r.last_seen))}).` : "No recent reports found."
         }${r.offline_cause ? " " + escape(r.offline_cause) : " Battery state can't be read while it's offline, so the cause is unconfirmed — most likely a battery-contact or signal/range issue."}</div></div>`
       : "";
+    const nameSection = `<div class="info-section">
+      <div class="info-label">Name ${r.custom_name ? `<span class="custom-badge">Custom</span>` : ""} <span class="ch-tag">CH${r.channel} · ${escape(r.zone)}</span></div>
+      <input type="text" class="name-input text-input" data-plant-id="${escape(id)}" value="${escape(r.name)}" placeholder="Plant name" />
+      ${r.custom_name ? `<button class="link-btn reset-name-btn" data-plant-id="${escape(id)}">Reset to default name</button>` : ""}
+    </div>`;
     const sections = [
+      nameSection,
       offlineSection,
       r.rating_explanation && r.status !== "no_reading" ? `<div class="info-section"><div class="info-label">Why this rating</div><div class="info-text">${escape(r.rating_explanation)}</div></div>` : "",
       r.watering_recommendation ? `<div class="info-section"><div class="info-label">Suggested watering</div><div class="info-text">${escape(r.watering_recommendation)}</div></div>` : "",
@@ -550,6 +568,23 @@
         clearOverride(b.dataset.plantId);
         fetchAndRender();
       });
+    });
+
+    // Name editor — rename a plant (saved on blur / Enter)
+    main.querySelectorAll(".name-input").forEach(inp => {
+      const id = inp.dataset.plantId;
+      const srv = (rawReadings || []).find(x => `${x.zone}-${x.channel}` === id);
+      const save = () => {
+        const v = inp.value.trim();
+        if (!v || (srv && v === srv.name)) clearNameOverride(id);
+        else setNameOverride(id, v);
+        fetchAndRender();
+      };
+      inp.addEventListener("blur", save);
+      inp.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); inp.blur(); } });
+    });
+    main.querySelectorAll(".reset-name-btn").forEach(b => {
+      b.addEventListener("click", () => { clearNameOverride(b.dataset.plantId); fetchAndRender(); });
     });
 
     // Zone picker — move a plant between Back/Side/Front Yard

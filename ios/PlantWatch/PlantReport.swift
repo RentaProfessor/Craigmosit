@@ -147,6 +147,8 @@ struct Reading: Decodable, Identifiable {
     var customRange:            Bool = false
     /// True if the user has moved this plant to a different physical zone.
     var customZone:             Bool = false
+    /// True if the user has set a custom display name.
+    var customName:             Bool = false
 
     enum CodingKeys: String, CodingKey {
         case zone, channel, name, type, species, verified, pair, moisture, battery, status, headline, advice

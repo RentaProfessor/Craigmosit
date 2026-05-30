@@ -8,6 +8,7 @@ final class Preferences: ObservableObject {
     static let shared = Preferences()
 
     @Published var overrides:     [String: Override] = [:]
+    @Published var nameOverrides: [String: String]  = [:]   // id → custom display name
     @Published var zoneOverrides: [String: String]  = [:]   // id → "Back Yard" / "Side Yards" / "Front Yard"
     @Published var zoneOrder:     [String: [String]] = [:]  // zone → [id, id, ...] custom drag order
     @Published var notifyMode:    NotifyMode         = .off
@@ -36,6 +37,7 @@ final class Preferences: ObservableObject {
     }
 
     private let kOverrides     = "pw-overrides"
+    private let kNames         = "pw-name-overrides"
     private let kZones         = "pw-zone-overrides"
     private let kOrder         = "pw-order"
     private let kNotifyMode    = "pw-notify-mode"
@@ -49,6 +51,8 @@ final class Preferences: ObservableObject {
         let d = UserDefaults.standard
         if let data = d.data(forKey: kOverrides),
            let m = try? JSONDecoder().decode([String: Override].self, from: data) { overrides = m }
+        if let data = d.data(forKey: kNames),
+           let m = try? JSONDecoder().decode([String: String].self, from: data) { nameOverrides = m }
         if let data = d.data(forKey: kZones),
            let m = try? JSONDecoder().decode([String: String].self, from: data) { zoneOverrides = m }
         if let data = d.data(forKey: kOrder),
@@ -73,6 +77,9 @@ final class Preferences: ObservableObject {
         overrides.removeValue(forKey: id)
         saveOverrides()
     }
+    private func saveNames() { if let d = try? JSONEncoder().encode(nameOverrides) { UserDefaults.standard.set(d, forKey: kNames) } }
+    func setName(_ id: String, _ name: String) { nameOverrides[id] = name; saveNames() }
+    func clearName(_ id: String) { nameOverrides.removeValue(forKey: id); saveNames() }
     /// Move a plant to a different physical zone (or clear by passing its server default elsewhere).
     func setZone(_ id: String, _ zone: String) {
         zoneOverrides[id] = zone
@@ -141,6 +148,12 @@ final class Preferences: ObservableObject {
     func applyOverride(_ r: Reading) -> Reading {
         let id = "\(r.zone)-\(r.channel)"
         var out = r
+
+        // Custom display name.
+        if let nm = nameOverrides[id], nm != r.name {
+            out.name = nm
+            out.customName = true
+        }
 
         // Zone override — move the plant to a different physical zone.
         if let z = zoneOverrides[id], z != (r.physicalZone ?? r.zone) {
