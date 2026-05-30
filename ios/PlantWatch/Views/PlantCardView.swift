@@ -17,7 +17,9 @@ struct PlantCardView: View {
                 header
                 if let m = reading.moisture {
                     moisture(value: m)
-                    MoistureGauge(value: m, low: reading.idealLow, high: reading.idealHigh, status: reading.status)
+                    if let lo = reading.idealLow, let hi = reading.idealHigh {
+                        MoistureGauge(value: m, low: lo, high: hi, status: reading.status)
+                    }
                 } else {
                     Text("No reading")
                         .font(.system(size: 17, weight: .medium))
@@ -133,10 +135,16 @@ struct PlantCardView: View {
                     .foregroundStyle(.secondary)
             }
             Spacer()
-            Text("Ideal \(reading.idealLow)–\(reading.idealHigh)%")
-                .font(.system(size: 12))
-                .monospacedDigit()
-                .foregroundStyle(.secondary)
+            if let lo = reading.idealLow, let hi = reading.idealHigh {
+                Text("Ideal \(lo)–\(hi)%")
+                    .font(.system(size: 12))
+                    .monospacedDigit()
+                    .foregroundStyle(.secondary)
+            } else {
+                Text("No range set")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+            }
         }
     }
 }

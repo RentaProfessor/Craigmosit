@@ -10,6 +10,7 @@
      ───────────────────────────────────────────────────────────── */
   const PREF = {
     overrides:   "pw-overrides",        // { "Back Yard-4": {low, high} }
+    assignments: "pw-assignments",      // { "Front Yard-7": {name, species, low, high} }
     notifyMode:  "pw-notify-mode",      // "off" | "dry" | "wet" | "both"
     notifyOn:    "pw-notify-plants",    // ["Back Yard-4", ...]
     lastStatus:  "pw-last-status",      // { "Back Yard-4": "good" }
@@ -20,6 +21,14 @@
   const getOverrides     = () => lsRead(PREF.overrides, {});
   const setOverride      = (id, low, high) => { const o = getOverrides(); o[id] = { low, high }; lsWrite(PREF.overrides, o); };
   const clearOverride    = (id) => { const o = getOverrides(); delete o[id]; lsWrite(PREF.overrides, o); };
+
+  const getAssignments   = () => lsRead(PREF.assignments, {});
+  const setAssignment    = (id, a) => { const o = getAssignments(); o[id] = a; lsWrite(PREF.assignments, o); };
+  const clearAssignment  = (id) => { const o = getAssignments(); delete o[id]; lsWrite(PREF.assignments, o); };
+
+  // Species catalog from the API (presets for the assign dropdown).
+  let speciesCatalog = [];
+  const findSpecies = (key) => speciesCatalog.find(s => s.key === key);
 
   const getNotifyMode    = () => localStorage.getItem(PREF.notifyMode) || "off";
   const setNotifyMode    = (m) => localStorage.setItem(PREF.notifyMode, m);
@@ -34,10 +43,53 @@
 
   // Apply overrides + recompute status client-side so the rest of the UI
   // and the notification check both see the user's adjusted band.
+  // Compute status/headline/advice for a moisture value against a low/high band.
+  function classify(m, low, high, speciesLabel) {
+    if (m === null) return { status: "no_reading", headline: "No reading", needs_water: false };
+    if (m < low) {
+      const gap = low - m, vd = gap >= 12;
+      return { status: vd ? "very_dry" : "dry", headline: vd ? "VERY DRY" : "Dry", needs_water: true };
+    }
+    if (m > high) return { status: "too_wet", headline: "Too wet", needs_water: false };
+    return { status: "good", headline: "Good", needs_water: false };
+  }
+
   function applyOverrides(readings) {
     const ov = getOverrides();
+    const asg = getAssignments();
     return readings.map(r => {
       const id = `${r.zone}-${r.channel}`;
+
+      // 1) Assigned (previously unassigned) sensor → become a full plant card
+      if (r.status === "unassigned" && asg[id]) {
+        const a = asg[id];
+        const sp = findSpecies(a.species);
+        const c = classify(r.moisture, a.low, a.high, a.species);
+        const adviceBits = r.moisture === null ? "Sensor isn't reporting."
+          : c.status === "good" ? `In range — at ${Math.round(r.moisture)}% you're inside the ideal ${a.low}–${a.high}% band.`
+          : c.status === "too_wet" ? `Hold off — at ${Math.round(r.moisture)}% you're above the ${a.high}% ceiling.`
+          : `Water — at ${Math.round(r.moisture)}% you're below the ${a.low}% floor.`;
+        return {
+          ...r,
+          name: a.name || r.name,
+          species: a.species || "custom",
+          type: a.species || "custom",
+          ideal_low: a.low, ideal_high: a.high,
+          ...c,
+          advice: adviceBits + (sp?.why ? " " + sp.why : ""),
+          species_note: sp?.why || null,
+          source_label: sp?.source_label || null,
+          source_url: sp?.source_url || null,
+          rating_explanation: r.moisture === null ? null
+            : `At ${Math.round(r.moisture)}% against your ${a.low}–${a.high}% band, this reads as ${c.headline.toLowerCase()}.`,
+          custom_assigned: true,
+          custom_range: false,
+        };
+      }
+      // 2) Still unassigned (no local assignment yet)
+      if (r.status === "unassigned") return { ...r, custom_range: false };
+
+      // 3) Range override on a known plant
       const o = ov[id];
       if (!o) return { ...r, custom_range: false };
       const m = r.moisture;
@@ -222,7 +274,8 @@
 
     let gauge = "";
     let moistureBlock = `<div class="moisture-row"><div class="moisture-val" style="color:var(--ink-3);font-size:18px">No reading</div></div>`;
-    if (r.moisture !== null) {
+    const hasRange = r.ideal_low !== null && r.ideal_high !== null;
+    if (r.moisture !== null && hasRange) {
       const clamp = (n) => Math.max(0, Math.min(100, n));
       const pct = clamp(r.moisture);
       const lo  = clamp(r.ideal_low);
@@ -239,6 +292,13 @@
           <div class="moisture-range">Ideal ${r.ideal_low}–${r.ideal_high}%</div>
         </div>
         ${gauge}`;
+    } else if (r.moisture !== null) {
+      // Unassigned sensor — show the reading but no ideal band yet.
+      moistureBlock = `
+        <div class="moisture-row">
+          <div class="moisture-val">${Math.round(r.moisture)}<span class="pct">%</span></div>
+          <div class="moisture-range">No range set</div>
+        </div>`;
     }
 
     const readingId = `${r.zone}-${r.channel}`;
@@ -270,8 +330,15 @@
 
   function renderInfoPanel(r) {
     const id = `${r.zone}-${r.channel}`;
+    // Unassigned (and not yet locally assigned) → show the Assign form.
+    if (r.status === "unassigned") {
+      return `<div class="info-panel">${renderAssignForm(r, id)}</div>`;
+    }
     const sourceLink = (r.source_label && r.source_url)
       ? `<div class="info-source">Source: <a href="${escape(r.source_url)}" target="_blank" rel="noopener">${escape(r.source_label)}</a></div>`
+      : "";
+    const assignedNote = r.custom_assigned
+      ? `<div class="info-section"><button class="link-btn unassign-btn" data-plant-id="${escape(id)}">Remove label (back to Unassigned)</button></div>`
       : "";
     const sections = [
       r.rating_explanation ? `<div class="info-section"><div class="info-label">Why this rating</div><div class="info-text">${escape(r.rating_explanation)}</div></div>` : "",
@@ -279,9 +346,48 @@
       r.species_note ? `<div class="info-section"><div class="info-label">Why ${escape(r.species)} needs this range</div><div class="info-text">${escape(r.species_note)}</div>${sourceLink}</div>` : "",
       renderRangeEditor(r, id),
       renderNotifyToggle(r, id),
+      assignedNote,
     ].filter(Boolean).join("");
     return `<div class="info-panel">${sections}</div>`;
   }
+
+  // Form to label + configure an unassigned sensor.
+  function renderAssignForm(r, id) {
+    const opts = speciesCatalog.map(s =>
+      `<option value="${escape(s.key)}" data-low="${s.low}" data-high="${s.high}">${escape(titleCase(s.key))} (${s.low}–${s.high}%)</option>`
+    ).join("");
+    return `<div class="assign-form" data-plant-id="${escape(id)}">
+      <div class="info-section">
+        <div class="info-label">Label this sensor</div>
+        <input type="text" class="assign-name text-input" placeholder="e.g. Tomato Bed, Rose Hedge…" />
+      </div>
+      <div class="info-section">
+        <div class="info-label">Plant type (sets the ideal range)</div>
+        <select class="assign-species select-input">
+          <option value="custom" data-low="30" data-high="50">Custom / Other</option>
+          ${opts}
+        </select>
+      </div>
+      <div class="info-section">
+        <div class="info-label">Ideal range</div>
+        <div class="range-editor">
+          <div class="range-row">
+            <label>Low</label>
+            <input type="range" min="5" max="80" value="30" class="range-input assign-low" />
+            <span class="range-val assign-low-val">30%</span>
+          </div>
+          <div class="range-row">
+            <label>High</label>
+            <input type="range" min="20" max="95" value="50" class="range-input assign-high" />
+            <span class="range-val assign-high-val">50%</span>
+          </div>
+        </div>
+      </div>
+      <button class="assign-save-btn">Save & assign</button>
+    </div>`;
+  }
+
+  const titleCase = (s) => String(s || "").replace(/[-_]/g, " ").replace(/\b\w/g, c => c.toUpperCase());
 
   function renderRangeEditor(r, id) {
     const isCustom = !!r.custom_range;
@@ -329,11 +435,11 @@
   function groupByPhysicalZone(readings) {
     const zones = {};
     for (const r of readings) {
-      const z = r.physical_zone || r.zone || "Other";
+      // Unassigned sensors get their own group regardless of gateway.
+      const z = r.status === "unassigned" ? "Unassigned" : (r.physical_zone || r.zone || "Other");
       (zones[z] ??= []).push(r);
     }
     for (const k in zones) {
-      // Preserve Ecowitt-app tile order within each physical zone, then by name
       zones[k].sort((a, b) => {
         const z = (a.zone || "").localeCompare(b.zone || "");
         if (z !== 0) return z;
@@ -351,14 +457,9 @@
   const openInfo = new Set();
 
   function renderFilterChips(zones) {
-    const counts = {
-      "all":        Object.values(zones).reduce((s, a) => s + a.length, 0),
-      "Back Yard":  (zones["Back Yard"]  || []).length,
-      "Side Yards": (zones["Side Yards"] || []).length,
-    };
-    const chip = (key, label) => {
+    const chip = (key, label, count) => {
       const active = zoneFilter === key ? " filter-chip--active" : "";
-      return `<button class="filter-chip${active}" data-filter="${escape(key)}">${escape(label)} <span class="filter-count">${counts[key] ?? 0}</span></button>`;
+      return `<button class="filter-chip${active}" data-filter="${escape(key)}">${escape(label)} <span class="filter-count">${count ?? 0}</span></button>`;
     };
     const layoutBtn = (key, label, icon) => {
       const active = layoutMode === key ? " layout-btn--active" : "";
@@ -366,12 +467,14 @@
     };
     const gridIcon = `<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><rect x="3" y="3" width="8" height="8" rx="1.5"/><rect x="13" y="3" width="8" height="8" rx="1.5"/><rect x="3" y="13" width="8" height="8" rx="1.5"/><rect x="13" y="13" width="8" height="8" rx="1.5"/></svg>`;
     const listIcon = `<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><rect x="3" y="4" width="18" height="3" rx="1.5"/><rect x="3" y="10.5" width="18" height="3" rx="1.5"/><rect x="3" y="17" width="18" height="3" rx="1.5"/></svg>`;
+    const total = Object.values(zones).reduce((s, a) => s + a.length, 0);
+    let chips = chip("all", "All", total);
+    for (const z of ["Back Yard", "Side Yards", "Front Yard"]) {
+      if (zones[z]?.length) chips += chip(z, z, zones[z].length);
+    }
+    if (zones["Unassigned"]?.length) chips += chip("Unassigned", "Unassigned", zones["Unassigned"].length);
     return `<div class="filter-row">
-      <div class="filter-chips">
-        ${chip("all",        "All")}
-        ${chip("Back Yard",  "Back Yard")}
-        ${chip("Side Yards", "Side Yards")}
-      </div>
+      <div class="filter-chips">${chips}</div>
       <div class="layout-toggle" role="group" aria-label="Layout">
         ${layoutBtn("grid", "Grid", gridIcon)}
         ${layoutBtn("list", "List", listIcon)}
@@ -382,7 +485,7 @@
   function renderReport(data) {
     const main = $("main");
     const zones = groupByPhysicalZone(data.readings);
-    const order = ["Back Yard", "Side Yards"];
+    const order = ["Back Yard", "Side Yards", "Front Yard", "Unassigned"];
 
     let html = renderHero(data) + renderFilterChips(zones);
 
@@ -390,11 +493,12 @@
       if (!zones[z]) continue;
       if (zoneFilter !== "all" && zoneFilter !== z) continue;
       const cnt = zones[z].length;
+      const noun = z === "Unassigned" ? "sensor" : "plant";
       html += `
         <section class="zone">
           <div class="zone-head">
             <h2>${escape(z)}</h2>
-            <span class="zone-count">${cnt} plant${cnt === 1 ? "" : "s"}</span>
+            <span class="zone-count">${cnt} ${noun}${cnt === 1 ? "" : "s"}</span>
           </div>
           <div class="grid grid--${layoutMode}">${zones[z].map(renderCard).join("")}</div>
         </section>`;
@@ -458,6 +562,45 @@
       });
     });
 
+    // Assign form for unassigned sensors
+    main.querySelectorAll(".assign-form").forEach(form => {
+      const id      = form.dataset.plantId;
+      const nameEl  = form.querySelector(".assign-name");
+      const spEl    = form.querySelector(".assign-species");
+      const lowEl   = form.querySelector(".assign-low");
+      const highEl  = form.querySelector(".assign-high");
+      const lowVal  = form.querySelector(".assign-low-val");
+      const highVal = form.querySelector(".assign-high-val");
+      const syncVals = () => {
+        let lo = +lowEl.value, hi = +highEl.value;
+        if (lo >= hi) { lo = hi - 1; lowEl.value = lo; }
+        lowVal.textContent = lo + "%"; highVal.textContent = hi + "%";
+      };
+      // Selecting a species prefills its range
+      spEl.addEventListener("change", () => {
+        const opt = spEl.selectedOptions[0];
+        if (opt?.dataset.low) { lowEl.value = opt.dataset.low; highEl.value = opt.dataset.high; syncVals(); }
+        if (!nameEl.value && spEl.value !== "custom") nameEl.value = titleCase(spEl.value);
+      });
+      lowEl.addEventListener("input", syncVals);
+      highEl.addEventListener("input", syncVals);
+      form.querySelector(".assign-save-btn").addEventListener("click", () => {
+        const species = spEl.value;
+        const name = nameEl.value.trim() || (species !== "custom" ? titleCase(species) : "Unnamed");
+        setAssignment(id, { name, species, low: +lowEl.value, high: +highEl.value });
+        openInfo.delete(id);   // collapse after saving
+        fetchAndRender();
+      });
+    });
+
+    // Unassign (remove a local label)
+    main.querySelectorAll(".unassign-btn").forEach(b => {
+      b.addEventListener("click", () => {
+        clearAssignment(b.dataset.plantId);
+        fetchAndRender();
+      });
+    });
+
     // Per-plant notification toggle
     main.querySelectorAll(".notify-toggle").forEach(t => {
       t.addEventListener("change", async () => {
@@ -478,23 +621,21 @@
 
   // Re-render using the current cached data after a preference change,
   // without forcing a network roundtrip.
-  function fetchAndRender() {
-    if (!lastData) return;
-    // Re-apply overrides since they changed
-    lastData.readings = applyOverrides(
-      // Strip any client-applied fields and start from server numbers
-      lastData.readings.map(r => ({
-        ...r,
-        // restore server status if we'd previously overwritten it
-        status: r.server_status || r.status,
-      }))
-    );
-    lastData.counts = {
-      needs_water: lastData.readings.filter(r => r.needs_water).length,
-      too_wet:     lastData.readings.filter(r => r.status === "too_wet").length,
-      good:        lastData.readings.filter(r => r.status === "good").length,
-      missing:     lastData.readings.filter(r => r.status === "no_reading").length,
+  function recountReadings(readings) {
+    return {
+      needs_water: readings.filter(r => r.needs_water).length,
+      too_wet:     readings.filter(r => r.status === "too_wet").length,
+      good:        readings.filter(r => r.status === "good").length,
+      missing:     readings.filter(r => r.status === "no_reading").length,
+      unassigned:  readings.filter(r => r.status === "unassigned").length,
     };
+  }
+
+  // Re-apply local prefs from the pristine server snapshot (no double-apply).
+  function fetchAndRender() {
+    if (!lastData || !rawReadings) return;
+    lastData.readings = applyOverrides(rawReadings);
+    lastData.counts = recountReadings(lastData.readings);
     renderReport(lastData);
   }
 
@@ -598,6 +739,7 @@
   /* ── data layer ───────────────────────────────────────────── */
 
   let lastData = null;
+  let rawReadings = null;   // untouched server readings, before local prefs
   let mode = "report"; // "report" | "setup"
 
   async function load() {
@@ -621,14 +763,11 @@
       if (!r.ok) throw new Error(`Backend returned HTTP ${r.status}`);
       const data = await r.json();
       if (data.error) throw new Error(data.error);
-      // Apply per-plant overrides and recompute counts/status BEFORE rendering
-      data.readings = applyOverrides(data.readings);
-      data.counts = {
-        needs_water: data.readings.filter(r => r.needs_water).length,
-        too_wet:     data.readings.filter(r => r.status === "too_wet").length,
-        good:        data.readings.filter(r => r.status === "good").length,
-        missing:     data.readings.filter(r => r.status === "no_reading").length,
-      };
+      if (Array.isArray(data.species_catalog)) speciesCatalog = data.species_catalog;
+      // Keep a pristine copy of server readings, then apply local prefs.
+      rawReadings = data.readings;
+      data.readings = applyOverrides(rawReadings);
+      data.counts = recountReadings(data.readings);
       lastData = data;
       $("meta").textContent = `Updated ${relTime(data.generated_at)}`;
       $("counts-meta").textContent = `${data.readings.length} sensors`;

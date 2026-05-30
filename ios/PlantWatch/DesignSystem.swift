@@ -60,6 +60,7 @@ extension Status {
         case .dryRainComing:        return DS.warn
         case .tooWet:               return DS.info
         case .noReading:            return .gray
+        case .unassigned:           return Color(red: 0.54, green: 0.39, blue: 0.82)  // purple
         }
     }
 

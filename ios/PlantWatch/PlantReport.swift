@@ -6,17 +6,20 @@ struct PlantReport: Decodable {
     var counts: Counts
     let pairNotes: [String: String]
     var readings: [Reading]
+    let speciesCatalog: [SpeciesPreset]?
 
     enum CodingKeys: String, CodingKey {
         case generatedAt = "generated_at"
         case weather, counts, readings
         case pairNotes  = "pair_notes"
+        case speciesCatalog = "species_catalog"
     }
 
-    /// Apply user overrides + recompute counts so the rest of the UI sees the new world.
+    /// Apply user overrides + assignments and recompute counts.
     @MainActor
     func applying(_ prefs: Preferences) -> PlantReport {
         var copy = self
+        if let cat = speciesCatalog { prefs.speciesCatalog = cat }
         copy.readings = readings.map { prefs.applyOverride($0) }
         copy.counts = Counts(
             needsWater: copy.readings.filter { $0.needsWater }.count,
@@ -88,6 +91,23 @@ enum Status: String, Decodable {
     case goodHotWarning  = "good_hot_warning"
     case tooWet          = "too_wet"
     case noReading       = "no_reading"
+    case unassigned
+}
+
+/// One preset plant type the user can pick when labeling an unassigned sensor.
+struct SpeciesPreset: Decodable, Identifiable, Hashable {
+    let key: String
+    let low: Int
+    let high: Int
+    let why: String?
+    let sourceLabel: String?
+    let sourceUrl: String?
+    var id: String { key }
+    enum CodingKeys: String, CodingKey {
+        case key, low, high, why
+        case sourceLabel = "source_label"
+        case sourceUrl   = "source_url"
+    }
 }
 
 struct Reading: Decodable, Identifiable {
@@ -98,31 +118,34 @@ struct Reading: Decodable, Identifiable {
     let displayOrder:          Int?
     let physicalZone:          String?    // physical location (Back Yard / Front Yard)
     let physicalZoneVerified:  Bool?
-    let name:                  String
+    var name:                  String
     let type:                  String
-    let species:               String      // species key — same as `type`, kept for clarity
+    var species:               String?     // null for unassigned sensors
     let verified:              Bool
     let pair:                  String?
     let pairRole:              String?
 
-    // Static research-backed ideal band — mutable so client-side overrides can replace it.
-    var idealLow:      Int
-    var idealHigh:     Int
+    // Ideal band — nullable (unassigned sensors have none until labeled).
+    // Mutable so client-side overrides / assignments can set it.
+    var idealLow:      Int?
+    var idealHigh:     Int?
 
     let moisture:               Double?
     let battery:                Double?
     var status:                 Status
     var headline:               String
-    let advice:                 String
-    let speciesNote:            String?
-    let sourceLabel:            String?
-    let sourceUrl:              String?
+    var advice:                 String
+    var speciesNote:            String?
+    var sourceLabel:            String?
+    var sourceUrl:              String?
     var needsWater:             Bool
-    let ratingExplanation:      String?
+    var ratingExplanation:      String?
     let wateringRecommendation: String?
     let wateringTargetPct:      Int?
     /// True if the user has set a custom range overriding the species default.
     var customRange:            Bool = false
+    /// True if the user has labeled a previously-unassigned sensor.
+    var customAssigned:         Bool = false
 
     enum CodingKeys: String, CodingKey {
         case zone, channel, name, type, species, verified, pair, moisture, battery, status, headline, advice

@@ -13,7 +13,7 @@ struct HeroCardView: View {
         if c.needsWater > 0 {
             let dry = report.readings
                 .filter(\.needsWater)
-                .sorted { ($0.idealLow - Int($0.moisture ?? 0)) > ($1.idealLow - Int($1.moisture ?? 0)) }
+                .sorted { (($0.idealLow ?? 0) - Int($0.moisture ?? 0)) > (($1.idealLow ?? 0) - Int($1.moisture ?? 0)) }
             let names = dry.prefix(3).map(\.name).joined(separator: ", ")
             let more = dry.count > 3 ? " +\(dry.count - 3) more" : ""
             return ("ACTION NEEDED",

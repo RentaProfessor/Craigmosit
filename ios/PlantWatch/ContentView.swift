@@ -3,9 +3,11 @@ import UserNotifications
 
 /// Physical-zone filter applied on the dashboard.
 enum ZoneFilter: String, CaseIterable, Identifiable {
-    case all       = "All"
-    case backYard  = "Back Yard"
-    case sideYards = "Side Yards"
+    case all        = "All"
+    case backYard   = "Back Yard"
+    case sideYards  = "Side Yards"
+    case frontYard  = "Front Yard"
+    case unassigned = "Unassigned"
     var id: String { rawValue }
 }
 
@@ -96,10 +98,14 @@ private struct ReportScrollView: View {
     @Binding var layoutRaw: String
     let onInfoTap: (Reading) -> Void
 
-    /// Group by physical_zone (Back Yard / Front Yard) instead of gateway.
+    /// Bucket a reading: unassigned sensors get their own group; otherwise physical zone.
+    private func bucket(_ r: Reading) -> String {
+        r.status == .unassigned ? "Unassigned" : (r.physicalZone ?? r.zone)
+    }
+
     private var zones: [(zone: String, readings: [Reading])] {
-        let g = Dictionary(grouping: report.readings) { $0.physicalZone ?? $0.zone }
-        return ["Back Yard", "Side Yards"].compactMap { z in
+        let g = Dictionary(grouping: report.readings, by: bucket)
+        return ["Back Yard", "Side Yards", "Front Yard", "Unassigned"].compactMap { z in
             guard filter == .all || filter.rawValue == z else { return nil }
             return g[z].map { (zone: z, readings: $0.sorted {
                 if $0.zone != $1.zone { return $0.zone < $1.zone }
@@ -109,11 +115,13 @@ private struct ReportScrollView: View {
     }
 
     private var zoneCounts: [ZoneFilter: Int] {
-        let g = Dictionary(grouping: report.readings) { $0.physicalZone ?? $0.zone }
+        let g = Dictionary(grouping: report.readings, by: bucket)
         return [
-            .all:       report.readings.count,
-            .backYard:  (g["Back Yard"]  ?? []).count,
-            .sideYards: (g["Side Yards"] ?? []).count,
+            .all:        report.readings.count,
+            .backYard:   (g["Back Yard"]  ?? []).count,
+            .sideYards:  (g["Side Yards"] ?? []).count,
+            .frontYard:  (g["Front Yard"] ?? []).count,
+            .unassigned: (g["Unassigned"] ?? []).count,
         ]
     }
 
@@ -150,7 +158,7 @@ private struct ReportScrollView: View {
                                 .tracking(1.5)
                                 .foregroundStyle(.secondary)
                             Spacer()
-                            Text("\(group.readings.count) plants")
+                            Text("\(group.readings.count) \(group.zone == "Unassigned" ? "sensor" : "plant")\(group.readings.count == 1 ? "" : "s")")
                                 .font(.system(size: 12))
                                 .foregroundStyle(.secondary)
                                 .monospacedDigit()
@@ -220,133 +228,188 @@ private struct LayoutToggle: View {
 /// Sheet shown when the info (i) button is tapped on a card.
 private struct InfoSheet: View {
     let reading: Reading
+    @Environment(\.dismiss) private var dismiss
     @ObservedObject private var prefs = Preferences.shared
     @State private var lowDraft: Double = 0
     @State private var highDraft: Double = 0
     @State private var notifyOn: Bool = false
+    // Assign-form state (unassigned sensors)
+    @State private var assignName: String = ""
+    @State private var assignSpecies: String = "custom"
     private var plantId: String { "\(reading.zone)-\(reading.channel)" }
+    private var isUnassigned: Bool { reading.status == .unassigned }
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
-                HStack(spacing: 12) {
-                    Text(DS.emoji(for: reading.name, type: reading.type))
-                        .font(.system(size: 36))
-                        .frame(width: 56, height: 56)
-                        .background(Color(.tertiarySystemGroupedBackground),
-                                    in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(reading.name).font(.title3.bold())
-                        Text("CH\(reading.channel) · ideal \(reading.idealLow)–\(reading.idealHigh)%")
-                            .font(.subheadline).foregroundStyle(.secondary)
-                    }
-                    Spacer()
-                    Text(reading.headline.uppercased())
-                        .font(.system(size: 11, weight: .bold))
-                        .tracking(0.5)
-                        .padding(.horizontal, 10).padding(.vertical, 5)
-                        .foregroundStyle(reading.status.tint)
-                        .background(reading.status.tint.opacity(0.16), in: Capsule())
-                }
-
-                if let why = reading.ratingExplanation {
-                    sec("Why this rating", body: why)
-                }
-                if let rec = reading.wateringRecommendation {
-                    sec("Suggested watering", body: rec)
-                } else if reading.status == .good {
-                    sec("Suggested watering", body: "None — in range.")
-                }
-                if let note = reading.speciesNote {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("WHY \(reading.species.uppercased()) NEEDS THIS RANGE")
-                            .font(.system(size: 11, weight: .semibold))
-                            .tracking(0.6)
-                            .foregroundStyle(.secondary)
-                        Text(note)
-                            .font(.subheadline)
-                            .foregroundStyle(.primary)
-                            .fixedSize(horizontal: false, vertical: true)
-                        if let label = reading.sourceLabel, let urlStr = reading.sourceUrl, let url = URL(string: urlStr) {
-                            Link(destination: url) {
-                                HStack(spacing: 4) {
-                                    Image(systemName: "link")
-                                        .font(.system(size: 10, weight: .semibold))
-                                    Text("Source: \(label)")
-                                        .font(.caption)
-                                }
-                                .foregroundStyle(DS.brandLight)
-                                .padding(.top, 2)
-                            }
-                        }
-                    }
-                }
-
-                // ── Custom range editor ──────────────────────────────
-                VStack(alignment: .leading, spacing: 10) {
-                    HStack {
-                        Text("ADJUST IDEAL RANGE")
-                            .font(.system(size: 11, weight: .semibold))
-                            .tracking(0.6)
-                            .foregroundStyle(.secondary)
-                        if reading.customRange {
-                            Text("CUSTOM")
-                                .font(.system(size: 9, weight: .bold))
-                                .tracking(0.5)
-                                .padding(.horizontal, 5).padding(.vertical, 2)
-                                .background(DS.brand.opacity(0.18), in: RoundedRectangle(cornerRadius: 4))
-                                .foregroundStyle(DS.brand)
-                        }
-                    }
-                    HStack {
-                        Text("Low").font(.caption).foregroundStyle(.secondary).frame(width: 36, alignment: .leading)
-                        Slider(value: $lowDraft, in: 5...80, step: 1) { _ in saveRange() }
-                        Text("\(Int(lowDraft))%").font(.caption).monospacedDigit().frame(width: 40, alignment: .trailing)
-                    }
-                    HStack {
-                        Text("High").font(.caption).foregroundStyle(.secondary).frame(width: 36, alignment: .leading)
-                        Slider(value: $highDraft, in: 20...95, step: 1) { _ in saveRange() }
-                        Text("\(Int(highDraft))%").font(.caption).monospacedDigit().frame(width: 40, alignment: .trailing)
-                    }
-                    if reading.customRange {
-                        Button("Reset to species default") { prefs.clearOverride(plantId) }
-                            .font(.caption)
-                            .foregroundStyle(DS.brandLight)
-                    }
-                }
-
-                // ── Per-plant notification toggle ────────────────────
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("ALERTS FOR THIS PLANT")
-                        .font(.system(size: 11, weight: .semibold))
-                        .tracking(0.6)
-                        .foregroundStyle(.secondary)
-                    Toggle(notifyOn ? "On" : "Off", isOn: $notifyOn)
-                        .tint(DS.brand)
-                        .onChange(of: notifyOn) { _, on in
-                            Task {
-                                if on { _ = await prefs.requestAuthorization() }
-                                prefs.setNotifyOn(plantId, on)
-                            }
-                        }
-                    Group {
-                        if prefs.notifyMode == .off {
-                            Text("Global notifications are off — enable them in the gear menu.")
-                        } else {
-                            Text("Will alert when " +
-                                 (prefs.notifyMode == .both ? "too dry or too wet" :
-                                  prefs.notifyMode == .dry  ? "too dry" : "too wet") + ".")
-                        }
-                    }
-                    .font(.caption).foregroundStyle(.secondary)
-                }
+                header
+                if isUnassigned { assignForm }
+                else            { details }
             }
             .padding(20)
         }
         .presentationDetents([.medium, .large])
         .onAppear {
-            lowDraft  = Double(reading.idealLow)
-            highDraft = Double(reading.idealHigh)
+            lowDraft  = Double(reading.idealLow ?? 30)
+            highDraft = Double(reading.idealHigh ?? 50)
             notifyOn  = prefs.isNotifyOn(plantId)
+        }
+    }
+
+    // MARK: header
+    private var header: some View {
+        HStack(spacing: 12) {
+            Text(DS.emoji(for: reading.name, type: reading.type))
+                .font(.system(size: 36))
+                .frame(width: 56, height: 56)
+                .background(Color(.tertiarySystemGroupedBackground),
+                            in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+            VStack(alignment: .leading, spacing: 2) {
+                Text(reading.name).font(.title3.bold())
+                if let lo = reading.idealLow, let hi = reading.idealHigh {
+                    Text("CH\(reading.channel) · ideal \(lo)–\(hi)%")
+                        .font(.subheadline).foregroundStyle(.secondary)
+                } else {
+                    Text("CH\(reading.channel) · \(reading.zone)")
+                        .font(.subheadline).foregroundStyle(.secondary)
+                }
+            }
+            Spacer()
+            Text(reading.headline.uppercased())
+                .font(.system(size: 11, weight: .bold))
+                .tracking(0.5)
+                .padding(.horizontal, 10).padding(.vertical, 5)
+                .foregroundStyle(reading.status.tint)
+                .background(reading.status.tint.opacity(0.16), in: Capsule())
+        }
+    }
+
+    // MARK: assign form (unassigned sensors)
+    private var assignForm: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("This sensor is connected" + (reading.moisture != nil ? " (reading \(Int(reading.moisture!))%)" : "") + " but not labeled. Name it, pick a plant type, and set its ideal range.")
+                .font(.subheadline).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text("LABEL").font(.system(size: 11, weight: .semibold)).tracking(0.6).foregroundStyle(.secondary)
+                TextField("e.g. Tomato Bed, Rose Hedge…", text: $assignName)
+                    .textFieldStyle(.roundedBorder)
+            }
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text("PLANT TYPE").font(.system(size: 11, weight: .semibold)).tracking(0.6).foregroundStyle(.secondary)
+                Picker("Plant type", selection: $assignSpecies) {
+                    Text("Custom / Other").tag("custom")
+                    ForEach(prefs.speciesCatalog) { sp in
+                        Text("\(titleCase(sp.key)) (\(sp.low)–\(sp.high)%)").tag(sp.key)
+                    }
+                }
+                .pickerStyle(.menu)
+                .onChange(of: assignSpecies) { _, key in
+                    if let sp = prefs.preset(key) {
+                        lowDraft = Double(sp.low); highDraft = Double(sp.high)
+                        if assignName.isEmpty { assignName = titleCase(key) }
+                    }
+                }
+            }
+
+            rangeSliders(showCustomBadge: false, resetButton: false)
+
+            Button {
+                if lowDraft >= highDraft { lowDraft = highDraft - 1 }
+                let name = assignName.trimmingCharacters(in: .whitespaces)
+                prefs.setAssignment(plantId,
+                                    name: name.isEmpty ? (assignSpecies == "custom" ? "Unnamed" : titleCase(assignSpecies)) : name,
+                                    species: assignSpecies,
+                                    low: Int(lowDraft), high: Int(highDraft))
+                dismiss()
+            } label: {
+                Text("Save & assign")
+                    .font(.system(size: 15, weight: .semibold))
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 12)
+                    .background(DS.brand, in: RoundedRectangle(cornerRadius: 10))
+                    .foregroundStyle(.white)
+            }
+            .buttonStyle(.plain)
+        }
+    }
+
+    // MARK: details (assigned / known plants)
+    private var details: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            if let why = reading.ratingExplanation { sec("Why this rating", body: why) }
+            if let rec = reading.wateringRecommendation { sec("Suggested watering", body: rec) }
+            else if reading.status == .good { sec("Suggested watering", body: "None — in range.") }
+
+            if let note = reading.speciesNote {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("WHY \((reading.species ?? "this plant").uppercased()) NEEDS THIS RANGE")
+                        .font(.system(size: 11, weight: .semibold)).tracking(0.6).foregroundStyle(.secondary)
+                    Text(note).font(.subheadline).foregroundStyle(.primary).fixedSize(horizontal: false, vertical: true)
+                    if let label = reading.sourceLabel, let urlStr = reading.sourceUrl, let url = URL(string: urlStr) {
+                        Link(destination: url) {
+                            HStack(spacing: 4) {
+                                Image(systemName: "link").font(.system(size: 10, weight: .semibold))
+                                Text("Source: \(label)").font(.caption)
+                            }
+                            .foregroundStyle(DS.brandLight).padding(.top, 2)
+                        }
+                    }
+                }
+            }
+
+            VStack(alignment: .leading, spacing: 10) {
+                HStack {
+                    Text("ADJUST IDEAL RANGE").font(.system(size: 11, weight: .semibold)).tracking(0.6).foregroundStyle(.secondary)
+                    if reading.customRange {
+                        Text("CUSTOM").font(.system(size: 9, weight: .bold)).tracking(0.5)
+                            .padding(.horizontal, 5).padding(.vertical, 2)
+                            .background(DS.brand.opacity(0.18), in: RoundedRectangle(cornerRadius: 4))
+                            .foregroundStyle(DS.brand)
+                    }
+                }
+                rangeSliders(showCustomBadge: true, resetButton: reading.customRange) { saveRange() }
+            }
+
+            // Per-plant notification toggle
+            VStack(alignment: .leading, spacing: 6) {
+                Text("ALERTS FOR THIS PLANT").font(.system(size: 11, weight: .semibold)).tracking(0.6).foregroundStyle(.secondary)
+                Toggle(notifyOn ? "On" : "Off", isOn: $notifyOn)
+                    .tint(DS.brand)
+                    .onChange(of: notifyOn) { _, on in
+                        Task { if on { _ = await prefs.requestAuthorization() }; prefs.setNotifyOn(plantId, on) }
+                    }
+                Group {
+                    if prefs.notifyMode == .off { Text("Global notifications are off — enable them in the gear menu.") }
+                    else { Text("Will alert when " + (prefs.notifyMode == .both ? "too dry or too wet" : prefs.notifyMode == .dry ? "too dry" : "too wet") + ".") }
+                }
+                .font(.caption).foregroundStyle(.secondary)
+            }
+
+            if reading.customAssigned {
+                Button("Remove label (back to Unassigned)") { prefs.clearAssignment(plantId); dismiss() }
+                    .font(.caption).foregroundStyle(DS.bad)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func rangeSliders(showCustomBadge: Bool, resetButton: Bool, onChange: (() -> Void)? = nil) -> some View {
+        HStack {
+            Text("Low").font(.caption).foregroundStyle(.secondary).frame(width: 36, alignment: .leading)
+            Slider(value: $lowDraft, in: 5...80, step: 1) { _ in onChange?() }
+            Text("\(Int(lowDraft))%").font(.caption).monospacedDigit().frame(width: 40, alignment: .trailing)
+        }
+        HStack {
+            Text("High").font(.caption).foregroundStyle(.secondary).frame(width: 36, alignment: .leading)
+            Slider(value: $highDraft, in: 20...95, step: 1) { _ in onChange?() }
+            Text("\(Int(highDraft))%").font(.caption).monospacedDigit().frame(width: 40, alignment: .trailing)
+        }
+        if resetButton {
+            Button("Reset to species default") { prefs.clearOverride(plantId) }
+                .font(.caption).foregroundStyle(DS.brandLight)
         }
     }
 
@@ -357,24 +420,31 @@ private struct InfoSheet: View {
     private func sec(_ label: String, body: String) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             Text(label.uppercased())
-                .font(.system(size: 11, weight: .semibold))
-                .tracking(0.6)
-                .foregroundStyle(.secondary)
-            Text(body)
-                .font(.subheadline)
-                .foregroundStyle(.primary)
-                .fixedSize(horizontal: false, vertical: true)
+                .font(.system(size: 11, weight: .semibold)).tracking(0.6).foregroundStyle(.secondary)
+            Text(body).font(.subheadline).foregroundStyle(.primary).fixedSize(horizontal: false, vertical: true)
         }
     }
+}
+
+private func titleCase(_ s: String) -> String {
+    s.replacingOccurrences(of: "-", with: " ")
+     .replacingOccurrences(of: "_", with: " ")
+     .split(separator: " ").map { $0.prefix(1).uppercased() + $0.dropFirst() }.joined(separator: " ")
 }
 
 /// Horizontal pill row to filter the report by physical zone.
 private struct ZoneFilterRow: View {
     @Binding var filter: ZoneFilter
     let counts: [ZoneFilter: Int]
+    // Hide Front Yard / Unassigned chips when they have no sensors.
+    private var visibleZones: [ZoneFilter] {
+        ZoneFilter.allCases.filter { z in
+            z == .all || z == .backYard || z == .sideYards || (counts[z] ?? 0) > 0
+        }
+    }
     var body: some View {
         HStack(spacing: 8) {
-            ForEach(ZoneFilter.allCases) { z in
+            ForEach(visibleZones) { z in
                 Button {
                     withAnimation(.easeOut(duration: 0.18)) { filter = z }
                 } label: {

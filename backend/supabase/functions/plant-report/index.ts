@@ -1,4 +1,4 @@
-// PlantWatch edge function v14 — simplified, static, research-only.
+// PlantWatch edge function v19 — 3 gateways (Back/Side/Front Yard) + unassigned sensors.
 //
 // Design after user feedback:
 //   • NO predictive / weather-adjusted ranges
@@ -124,16 +124,27 @@ const PLANTS = [
   {zone:"Back Yard",ch:8, display:15, name:"Avocado Deep",               p:"avocado",     verified:true,  physical:"Back Yard",  physical_verified:true, pair:"av", role:"deep"},
   {zone:"Back Yard",ch:10,display:16, name:"Avocado Shallow",            p:"avocado",     verified:true,  physical:"Back Yard",  physical_verified:true, pair:"av", role:"shallow"},
 
-  // ── SIDE YARDS gateway (8 sensors) ────────────────────────────────────
-  {zone:"Side Yards",ch:1,display:1, name:"Camelia",                          p:"camellia",    verified:true, physical:"Side Yards", physical_verified:true},
-  {zone:"Side Yards",ch:2,display:2, name:"Rosemary Cook Center Floor",       p:"rosemary",    verified:true, physical:"Side Yards", physical_verified:true},
-  {zone:"Side Yards",ch:5,display:3, name:"Star Jasmine Cook Center Floor",   p:"star_jasmine",verified:true, physical:"Side Yards", physical_verified:true},
-  {zone:"Side Yards",ch:4,display:4, name:"Rosemary Cook Center Hill",        p:"rosemary",    verified:true, physical:"Side Yards", physical_verified:true},
-  {zone:"Side Yards",ch:7,display:5, name:"Bay Laurel Behind Spit",           p:"bay_laurel",  verified:true, physical:"Side Yards", physical_verified:true},
-  {zone:"Side Yards",ch:3,display:6, name:"Lavender Front Yard",              p:"lavender",    verified:true, physical:"Side Yards", physical_verified:true},
-  {zone:"Side Yards",ch:6,display:7, name:"Boxwood Driveway",                 p:"boxwood",     verified:true, physical:"Side Yards", physical_verified:true},
-  {zone:"Side Yards",ch:8,display:8, name:"Westringia Office",                p:"westringia",  verified:true, physical:"Side Yards", physical_verified:true},
+  // ── SIDE YARDS gateway — Camelia(CH1), Lavender(CH3), Boxwood(CH6) moved to Front Yard
+  {zone:"Side Yards",ch:2,display:1, name:"Rosemary Cook Center Floor",       p:"rosemary",    verified:true, physical:"Side Yards", physical_verified:true},
+  {zone:"Side Yards",ch:5,display:2, name:"Star Jasmine Cook Center Floor",   p:"star_jasmine",verified:true, physical:"Side Yards", physical_verified:true},
+  {zone:"Side Yards",ch:4,display:3, name:"Rosemary Cook Center Hill",        p:"rosemary",    verified:true, physical:"Side Yards", physical_verified:true},
+  {zone:"Side Yards",ch:7,display:4, name:"Bay Laurel Behind Spit",           p:"bay_laurel",  verified:true, physical:"Side Yards", physical_verified:true},
+  {zone:"Side Yards",ch:8,display:5, name:"Westringia Office",                p:"westringia",  verified:true, physical:"Side Yards", physical_verified:true},
+
+  // ── FRONT YARD gateway (new May 27 2026) — 4 plants confirmed by user
+  {zone:"Front Yard",ch:1,display:1, name:"Camelia",            p:"camellia",  verified:true, physical:"Front Yard", physical_verified:true},
+  {zone:"Front Yard",ch:2,display:2, name:"Lavender Front Yard", p:"lavender",  verified:true, physical:"Front Yard", physical_verified:true},
+  {zone:"Front Yard",ch:3,display:3, name:"Boxwood Driveway",    p:"boxwood",   verified:true, physical:"Front Yard", physical_verified:true},
+  {zone:"Front Yard",ch:4,display:4, name:"Rosemary Driveway",   p:"rosemary",  verified:true, physical:"Front Yard", physical_verified:true},
 ];
+
+// Sensors physically retired/re-paired — hide completely (not even "Unassigned").
+// Camelia/Lavender/Boxwood re-paired from the Side Yards gateway to Front Yard;
+// their old Side Yards channels may still echo stale values for a while.
+const RETIRED = new Set(["Side Yards-1", "Side Yards-3", "Side Yards-6"]);
+
+// Default physical zone for each gateway (used for unassigned sensors).
+const GATEWAY_PHYSICAL = { "Back Yard": "Back Yard", "Side Yards": "Side Yards", "Front Yard": "Front Yard" };
 
 const num = (x) => { const n = parseFloat(x); return isFinite(n) ? n : null; };
 const getEnv = (k) => Deno.env.get(k) ?? "";
@@ -239,9 +250,10 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, {headers:CORS});
   if (req.method !== "GET") return new Response("Method Not Allowed", {status:405,headers:CORS});
   try {
-    const [byd, sid, wxRaw] = await Promise.all([
+    const [byd, sid, fyd, wxRaw] = await Promise.all([
       getGw(getEnv("ECOWITT_MAC_BACKYARD")),
       getGw(getEnv("ECOWITT_MAC_SIDEYARDS")),
+      getGw(getEnv("ECOWITT_MAC_FRONTYARD")),
       getWx(),
     ]);
 
@@ -256,7 +268,7 @@ Deno.serve(async (req) => {
     const rhNow = num(cur.relative_humidity_2m);
     const hiTom = num((daily.temperature_2m_max||[])[1]);
 
-    const zones = {"Back Yard": byd, "Side Yards": sid};
+    const zones = {"Back Yard": byd, "Side Yards": sid, "Front Yard": fyd};
     const readings = PLANTS.map(plant => {
       const node = zones[plant.zone] && zones[plant.zone]["soil_ch"+plant.ch];
       const moisture = (node?.soilmoisture?.value != null) ? num(node.soilmoisture.value) : null;
@@ -296,12 +308,42 @@ Deno.serve(async (req) => {
       };
     });
 
-    const counts = {needs_water:0,too_wet:0,good:0,missing:0};
+
+    // ── Unassigned sensors: any active soil channel not in PLANTS and not retired.
+    const known = new Set(PLANTS.map(p => `${p.zone}-${p.ch}`));
+    for (const [zoneName, data] of Object.entries(zones)) {
+      for (const key of Object.keys(data || {})) {
+        const mm = key.match(/^soil_ch(\d+)$/);
+        if (!mm) continue;
+        const ch = parseInt(mm[1], 10);
+        const id = `${zoneName}-${ch}`;
+        if (known.has(id) || RETIRED.has(id)) continue;
+        const node = data[key];
+        const moisture = (node?.soilmoisture?.value != null) ? num(node.soilmoisture.value) : null;
+        const batNode = data.battery?.["soilmoisture_sensor_ch"+ch];
+        const battery = batNode ? num(batNode.value) : null;
+        readings.push({
+          zone: zoneName, channel: ch, display_order: 900 + ch,
+          physical_zone: GATEWAY_PHYSICAL[zoneName] || zoneName, physical_zone_verified: true,
+          name: `Unassigned CH${ch}`, species: null, type: "unassigned", verified: false,
+          pair: null, pair_role: null,
+          ideal_low: null, ideal_high: null,
+          moisture, battery,
+          status: "unassigned", headline: "Unassigned",
+          advice: "Connected but not labeled yet. Tap \u24D8 to name it, pick a plant type, and set its ideal moisture range.",
+          species_note: null, source_label: null, source_url: null, needs_water: false,
+          rating_explanation: null, watering_recommendation: null, watering_target_pct: null,
+        });
+      }
+    }
+
+    const counts = {needs_water:0,too_wet:0,good:0,missing:0,unassigned:0};
     for (const r of readings) {
       if (r.needs_water) counts.needs_water++;
       else if (r.status==="too_wet") counts.too_wet++;
       else if (r.status==="good") counts.good++;
       else if (r.status==="no_reading") counts.missing++;
+      else if (r.status==="unassigned") counts.unassigned++;
     }
 
     if (getEnv("LOG_HISTORY")==="true" && getEnv("SUPABASE_URL") && getEnv("SUPABASE_SERVICE_ROLE_KEY")) {
@@ -327,7 +369,12 @@ Deno.serve(async (req) => {
         rain_tomorrow_in:     rainTom,
         available:            hiToday !== null,
       },
-      counts, pair_notes:{}, readings
+      counts, pair_notes:{},
+      species_catalog: Object.values(profiles).map(p => ({
+        key: p.species, low: p.low, high: p.high,
+        why: p.why, source_label: p.source_label, source_url: p.source_url,
+      })),
+      readings
     }), {status:200, headers:{...CORS, "Content-Type":"application/json", "Cache-Control":"no-store"}});
   } catch(err) {
     return new Response(JSON.stringify({error: String(err?.message ?? err)}),
