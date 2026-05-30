@@ -452,6 +452,7 @@ private struct InfoSheet: View {
     private func saveName() {
         let v = nameDraft.trimmingCharacters(in: .whitespaces)
         if v.isEmpty { prefs.clearName(plantId) } else { prefs.setName(plantId, v) }
+        dismiss()   // close so the renamed card is immediately visible (clear confirmation)
     }
     private func saveRange() {
         if lowDraft >= highDraft { lowDraft = highDraft - 1 }
