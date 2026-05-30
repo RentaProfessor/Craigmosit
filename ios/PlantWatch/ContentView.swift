@@ -578,6 +578,13 @@ private struct SettingsSheet: View {
                         }
                     }
                 }
+                Section("Sensor health") {
+                    Toggle("Notify when a sensor goes offline", isOn: Binding(
+                        get: { prefs.notifyOffline },
+                        set: { on in Task { if on { _ = await prefs.requestAuthorization() }; prefs.setNotifyOffline(on); await refreshAuth() } }
+                    ))
+                    .tint(DS.brand)
+                }
                 Section {
                     HStack {
                         Text("Notification permission")

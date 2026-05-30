@@ -50,6 +50,9 @@
   const getNotifyMode    = () => localStorage.getItem(PREF.notifyMode) || "off";
   const setNotifyMode    = (m) => localStorage.setItem(PREF.notifyMode, m);
 
+  const getNotifyOffline = () => localStorage.getItem("pw-notify-offline") === "true";
+  const setNotifyOffline = (on) => localStorage.setItem("pw-notify-offline", on ? "true" : "false");
+
   const getNotifyPlants  = () => new Set(lsRead(PREF.notifyOn, []));
   const isNotifyOn       = (id) => getNotifyPlants().has(id);
   const setNotifyOn      = (id, on) => {
@@ -95,7 +98,8 @@
   // the global mode + per-plant opt-in.
   async function notifyIfChanged(readings) {
     const mode = getNotifyMode();
-    if (mode === "off") return;
+    const offlineOn = getNotifyOffline();
+    if (mode === "off" && !offlineOn) return;
     if (typeof Notification === "undefined") return;
     if (Notification.permission !== "granted") return;
 
@@ -107,21 +111,30 @@
       if (!isNotifyOn(id)) continue;
 
       const prev = last[id];
-      if (prev === r.status) continue;       // unchanged
+      if (prev === r.status || prev === undefined) continue;   // unchanged / first sight
 
+      // Sensor went offline
+      if (offlineOn && r.status === "no_reading" && prev !== "no_reading") {
+        try {
+          new Notification(`📡 ${r.name} went offline`, {
+            body: r.last_seen ? `Last reported ${relTime(r.last_seen)}.` : `Sensor stopped reporting.`,
+            tag: id + "-offline", icon: "icon-192.png",
+          });
+        } catch (_) {}
+        continue;
+      }
+
+      // Moisture status worsened
       const becameDry = (r.status === "dry" || r.status === "very_dry") &&
                         (prev !== "dry" && prev !== "very_dry");
       const becameWet = r.status === "too_wet" && prev !== "too_wet";
-
       const fireDry = (mode === "dry" || mode === "both") && becameDry;
       const fireWet = (mode === "wet" || mode === "both") && becameWet;
-
-      if (fireDry || fireWet) {
+      if ((fireDry || fireWet) && r.moisture !== null) {
         try {
           new Notification(`🌱 ${r.name}`, {
             body: `${r.headline} · ${Math.round(r.moisture)}% (ideal ${r.ideal_low}–${r.ideal_high}%)`,
-            tag: id,
-            icon: "icon-192.png",
+            tag: id, icon: "icon-192.png",
           });
         } catch (_) {}
       }
@@ -677,6 +690,14 @@
               <span>${o.label}</span>
             </label>`).join("")}
           <div class="modal-divider"></div>
+          <label class="radio-row" style="justify-content:space-between">
+            <span>Notify when a sensor goes offline</span>
+            <span class="switch">
+              <input type="checkbox" id="notify-offline" ${getNotifyOffline() ? "checked" : ""}/>
+              <span class="slider-pill"></span>
+            </span>
+          </label>
+          <div class="modal-divider"></div>
           <div class="info-label" style="margin-bottom:4px">Browser permission</div>
           <div class="info-text" style="margin-bottom:8px">${
             perm === "granted" ? "✅ Granted" :
@@ -702,6 +723,13 @@
         }
         if (lastData) renderReport(lastData);
       });
+    });
+    const offEl = wrap.querySelector("#notify-offline");
+    if (offEl) offEl.addEventListener("change", async () => {
+      if (offEl.checked && typeof Notification !== "undefined" && Notification.permission === "default") {
+        await Notification.requestPermission();
+      }
+      setNotifyOffline(offEl.checked);
     });
   }
 

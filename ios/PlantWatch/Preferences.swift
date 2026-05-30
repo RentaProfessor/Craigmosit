@@ -11,6 +11,7 @@ final class Preferences: ObservableObject {
     @Published var zoneOverrides: [String: String]  = [:]   // id → "Back Yard" / "Side Yards" / "Front Yard"
     @Published var zoneOrder:     [String: [String]] = [:]  // zone → [id, id, ...] custom drag order
     @Published var notifyMode:    NotifyMode         = .off
+    @Published var notifyOffline: Bool               = false
     @Published var notifyPlants:  Set<String>        = []
     @Published var lastStatus:    [String: String]   = [:]
 
@@ -34,12 +35,13 @@ final class Preferences: ObservableObject {
         }
     }
 
-    private let kOverrides    = "pw-overrides"
-    private let kZones        = "pw-zone-overrides"
-    private let kOrder        = "pw-order"
-    private let kNotifyMode   = "pw-notify-mode"
-    private let kNotifyPlants = "pw-notify-plants"
-    private let kLastStatus   = "pw-last-status"
+    private let kOverrides     = "pw-overrides"
+    private let kZones         = "pw-zone-overrides"
+    private let kOrder         = "pw-order"
+    private let kNotifyMode    = "pw-notify-mode"
+    private let kNotifyOffline = "pw-notify-offline"
+    private let kNotifyPlants  = "pw-notify-plants"
+    private let kLastStatus    = "pw-last-status"
 
     private init() { load() }
 
@@ -52,6 +54,7 @@ final class Preferences: ObservableObject {
         if let data = d.data(forKey: kOrder),
            let m = try? JSONDecoder().decode([String: [String]].self, from: data) { zoneOrder = m }
         if let raw = d.string(forKey: kNotifyMode), let m = NotifyMode(rawValue: raw) { notifyMode = m }
+        notifyOffline = d.bool(forKey: kNotifyOffline)
         if let arr = d.array(forKey: kNotifyPlants) as? [String] { notifyPlants = Set(arr) }
         if let data = d.data(forKey: kLastStatus),
            let m = try? JSONDecoder().decode([String: String].self, from: data) { lastStatus = m }
@@ -118,6 +121,10 @@ final class Preferences: ObservableObject {
         notifyMode = mode
         UserDefaults.standard.set(mode.rawValue, forKey: kNotifyMode)
     }
+    func setNotifyOffline(_ on: Bool) {
+        notifyOffline = on
+        UserDefaults.standard.set(on, forKey: kNotifyOffline)
+    }
     func isNotifyOn(_ id: String) -> Bool { notifyPlants.contains(id) }
 
     /// Classify a moisture value against a low/high band.
@@ -156,9 +163,10 @@ final class Preferences: ObservableObject {
         return out
     }
 
-    /// Fire local notifications when a plant's status worsens, respecting prefs.
+    /// Fire local notifications when a watched plant's status worsens or it goes
+    /// offline, respecting prefs.
     func notifyIfChanged(_ readings: [Reading]) {
-        guard notifyMode != .off else { return }
+        guard notifyMode != .off || notifyOffline else { return }
         Task {
             let settings = await UNUserNotificationCenter.current().notificationSettings()
             guard settings.authorizationStatus == .authorized || settings.authorizationStatus == .provisional else { return }
@@ -169,20 +177,31 @@ final class Preferences: ObservableObject {
                 newStatus[id] = r.status.rawValue
                 guard notifyPlants.contains(id) else { continue }
                 let prev = lastStatus[id]
-                guard prev != r.status.rawValue else { continue }
+                // Don't fire on first sighting or unchanged status.
+                guard let prev, prev != r.status.rawValue else { continue }
 
-                let becameDry = (r.status == .dry || r.status == .veryDry) &&
-                                (prev != Status.dry.rawValue && prev != Status.veryDry.rawValue)
-                let becameWet = r.status == .tooWet && prev != Status.tooWet.rawValue
-                let fireDry = (notifyMode == .dry || notifyMode == .both) && becameDry
-                let fireWet = (notifyMode == .wet || notifyMode == .both) && becameWet
-                guard fireDry || fireWet, let m = r.moisture else { continue }
-
-                let bandText = (r.idealLow != nil && r.idealHigh != nil) ? " (ideal \(r.idealLow!)–\(r.idealHigh!)%)" : ""
                 let content = UNMutableNotificationContent()
-                content.title = "🌱 \(r.name)"
-                content.body  = "\(r.headline) · \(Int(m))%\(bandText)"
                 content.sound = .default
+                var fire = false
+
+                if notifyOffline && r.status == .noReading && prev != Status.noReading.rawValue {
+                    content.title = "📡 \(r.name) went offline"
+                    content.body  = r.lastSeenRelative.map { "Last reported \($0)." } ?? "Sensor stopped reporting."
+                    fire = true
+                } else if let m = r.moisture {
+                    let becameDry = (r.status == .dry || r.status == .veryDry) &&
+                                    (prev != Status.dry.rawValue && prev != Status.veryDry.rawValue)
+                    let becameWet = r.status == .tooWet && prev != Status.tooWet.rawValue
+                    let fireDry = (notifyMode == .dry || notifyMode == .both) && becameDry
+                    let fireWet = (notifyMode == .wet || notifyMode == .both) && becameWet
+                    if fireDry || fireWet {
+                        let bandText = (r.idealLow != nil && r.idealHigh != nil) ? " (ideal \(r.idealLow!)–\(r.idealHigh!)%)" : ""
+                        content.title = "🌱 \(r.name)"
+                        content.body  = "\(r.headline) · \(Int(m))%\(bandText)"
+                        fire = true
+                    }
+                }
+                guard fire else { continue }
                 let req = UNNotificationRequest(identifier: id,
                                                 content: content,
                                                 trigger: UNTimeIntervalNotificationTrigger(timeInterval: 1, repeats: false))
