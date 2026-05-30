@@ -8,23 +8,14 @@ final class Preferences: ObservableObject {
     static let shared = Preferences()
 
     @Published var overrides:     [String: Override] = [:]
-    @Published var assignments:   [String: Assignment] = [:]
+    @Published var zoneOverrides: [String: String]  = [:]   // id → "Back Yard" / "Side Yards" / "Front Yard"
     @Published var notifyMode:    NotifyMode         = .off
     @Published var notifyPlants:  Set<String>        = []
     @Published var lastStatus:    [String: String]   = [:]
 
-    /// Species presets from the latest API response (for the assign picker).
-    var speciesCatalog: [SpeciesPreset] = []
+    static let zones = ["Back Yard", "Side Yards", "Front Yard"]
 
     struct Override: Codable, Hashable {
-        let low: Int
-        let high: Int
-    }
-
-    /// A user-applied label + range for a previously-unassigned sensor.
-    struct Assignment: Codable, Hashable {
-        let name: String
-        let species: String   // a catalog key, or "custom"
         let low: Int
         let high: Int
     }
@@ -43,7 +34,7 @@ final class Preferences: ObservableObject {
     }
 
     private let kOverrides    = "pw-overrides"
-    private let kAssignments  = "pw-assignments"
+    private let kZones        = "pw-zone-overrides"
     private let kNotifyMode   = "pw-notify-mode"
     private let kNotifyPlants = "pw-notify-plants"
     private let kLastStatus   = "pw-last-status"
@@ -54,18 +45,18 @@ final class Preferences: ObservableObject {
         let d = UserDefaults.standard
         if let data = d.data(forKey: kOverrides),
            let m = try? JSONDecoder().decode([String: Override].self, from: data) { overrides = m }
-        if let data = d.data(forKey: kAssignments),
-           let m = try? JSONDecoder().decode([String: Assignment].self, from: data) { assignments = m }
+        if let data = d.data(forKey: kZones),
+           let m = try? JSONDecoder().decode([String: String].self, from: data) { zoneOverrides = m }
         if let raw = d.string(forKey: kNotifyMode), let m = NotifyMode(rawValue: raw) { notifyMode = m }
         if let arr = d.array(forKey: kNotifyPlants) as? [String] { notifyPlants = Set(arr) }
         if let data = d.data(forKey: kLastStatus),
            let m = try? JSONDecoder().decode([String: String].self, from: data) { lastStatus = m }
     }
 
-    private func saveOverrides()   { if let d = try? JSONEncoder().encode(overrides)   { UserDefaults.standard.set(d, forKey: kOverrides) } }
-    private func saveAssignments() { if let d = try? JSONEncoder().encode(assignments) { UserDefaults.standard.set(d, forKey: kAssignments) } }
-    private func saveNotifyPlants(){ UserDefaults.standard.set(Array(notifyPlants), forKey: kNotifyPlants) }
-    private func saveLastStatus()  { if let d = try? JSONEncoder().encode(lastStatus) { UserDefaults.standard.set(d, forKey: kLastStatus) } }
+    private func saveOverrides()    { if let d = try? JSONEncoder().encode(overrides)     { UserDefaults.standard.set(d, forKey: kOverrides) } }
+    private func saveZones()        { if let d = try? JSONEncoder().encode(zoneOverrides) { UserDefaults.standard.set(d, forKey: kZones) } }
+    private func saveNotifyPlants() { UserDefaults.standard.set(Array(notifyPlants), forKey: kNotifyPlants) }
+    private func saveLastStatus()   { if let d = try? JSONEncoder().encode(lastStatus) { UserDefaults.standard.set(d, forKey: kLastStatus) } }
 
     func setOverride(_ id: String, low: Int, high: Int) {
         overrides[id] = Override(low: low, high: high)
@@ -75,15 +66,15 @@ final class Preferences: ObservableObject {
         overrides.removeValue(forKey: id)
         saveOverrides()
     }
-    func setAssignment(_ id: String, name: String, species: String, low: Int, high: Int) {
-        assignments[id] = Assignment(name: name, species: species, low: low, high: high)
-        saveAssignments()
+    /// Move a plant to a different physical zone (or clear by passing its server default elsewhere).
+    func setZone(_ id: String, _ zone: String) {
+        zoneOverrides[id] = zone
+        saveZones()
     }
-    func clearAssignment(_ id: String) {
-        assignments.removeValue(forKey: id)
-        saveAssignments()
+    func clearZone(_ id: String) {
+        zoneOverrides.removeValue(forKey: id)
+        saveZones()
     }
-    func preset(_ key: String) -> SpeciesPreset? { speciesCatalog.first { $0.key == key } }
     func setNotifyOn(_ id: String, _ on: Bool) {
         if on { notifyPlants.insert(id) } else { notifyPlants.remove(id) }
         saveNotifyPlants()
@@ -104,45 +95,30 @@ final class Preferences: ObservableObject {
         return (.good, "Good", false)
     }
 
-    /// Apply a local override (known plant) or assignment (unassigned sensor).
+    /// Apply local range + zone overrides to a reading.
     func applyOverride(_ r: Reading) -> Reading {
         let id = "\(r.zone)-\(r.channel)"
+        var out = r
 
-        // 1) Unassigned sensor the user has labeled → become a full plant.
-        if r.status == .unassigned, let a = assignments[id] {
-            let p = preset(a.species)
-            var out = r
-            out.name = a.name
-            out.species = a.species
-            out.idealLow = a.low
-            out.idealHigh = a.high
-            out.customAssigned = true
+        // Zone override — move the plant to a different physical zone.
+        if let z = zoneOverrides[id], z != (r.physicalZone ?? r.zone) {
+            out.physicalZone = z
+            out.customZone = true
+        }
+
+        // Range override — recompute status against the new band.
+        if let o = overrides[id] {
             if let m = r.moisture {
-                let (st, hd, needs) = classify(m, low: a.low, high: a.high)
-                out.status = st; out.headline = hd; out.needsWater = needs
-                out.ratingExplanation = "At \(Int(m))% against your \(a.low)–\(a.high)% band, this reads as \(hd.lowercased())."
-                out.advice = (st == .good
-                    ? "In range — at \(Int(m))% you're inside your \(a.low)–\(a.high)% band."
-                    : st == .tooWet
-                        ? "Hold off — at \(Int(m))% you're above your \(a.high)% ceiling."
-                        : "Water — at \(Int(m))% you're below your \(a.low)% floor.")
-                    + (p?.why.map { " " + $0 } ?? "")
+                let (status, headline, _) = classify(m, low: o.low, high: o.high)
+                out.idealLow = o.low; out.idealHigh = o.high
+                out.status = status; out.headline = headline
+                out.needsWater = (status == .dry || status == .veryDry)
+                out.customRange = true
             } else {
-                out.status = .noReading; out.headline = "No reading"
+                out.idealLow = o.low; out.idealHigh = o.high; out.customRange = true
             }
-            out.speciesNote = p?.why
-            out.sourceLabel = p?.sourceLabel
-            out.sourceUrl   = p?.sourceUrl
-            return out
         }
-
-        // 2) Range override on a known plant.
-        guard let o = overrides[id] else { return r }
-        guard let m = r.moisture else {
-            return r.withRange(low: o.low, high: o.high, customRange: true)
-        }
-        let (status, headline, _) = classify(m, low: o.low, high: o.high)
-        return r.withOverride(low: o.low, high: o.high, status: status, headline: headline)
+        return out
     }
 
     /// Fire local notifications when a plant's status worsens, respecting prefs.

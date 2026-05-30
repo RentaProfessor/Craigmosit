@@ -819,6 +819,35 @@ body::before {
 .assign-save-btn:hover { background: var(--brand-dk, var(--brand-2)); }
 .assign-save-btn:active { transform: scale(0.98); }
 .unassign-btn { color: var(--bad); font-size: 12px; padding: 4px 0; }
+
+/* ── Zone picker (move plant between yards) ─────────────────── */
+.zone-picker {
+  display: flex;
+  gap: 6px;
+  margin-top: 4px;
+  flex-wrap: wrap;
+}
+.zone-pick {
+  appearance: none;
+  flex: 1 1 0;
+  min-width: 88px;
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 500;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--bg);
+  color: var(--ink-2);
+  cursor: pointer;
+  transition: background .15s var(--ease), color .15s var(--ease), border-color .15s var(--ease);
+}
+.zone-pick:hover { color: var(--ink); border-color: var(--ink-3); }
+.zone-pick--active {
+  background: var(--brand);
+  color: #fff;
+  border-color: var(--brand);
+}
 .card--info-open {
   box-shadow: var(--shadow-md);
 }

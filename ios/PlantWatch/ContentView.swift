@@ -7,7 +7,6 @@ enum ZoneFilter: String, CaseIterable, Identifiable {
     case backYard   = "Back Yard"
     case sideYards  = "Side Yards"
     case frontYard  = "Front Yard"
-    case unassigned = "Unassigned"
     var id: String { rawValue }
 }
 
@@ -98,14 +97,11 @@ private struct ReportScrollView: View {
     @Binding var layoutRaw: String
     let onInfoTap: (Reading) -> Void
 
-    /// Bucket a reading: unassigned sensors get their own group; otherwise physical zone.
-    private func bucket(_ r: Reading) -> String {
-        r.status == .unassigned ? "Unassigned" : (r.physicalZone ?? r.zone)
-    }
+    private func bucket(_ r: Reading) -> String { r.physicalZone ?? r.zone }
 
     private var zones: [(zone: String, readings: [Reading])] {
         let g = Dictionary(grouping: report.readings, by: bucket)
-        return ["Back Yard", "Side Yards", "Front Yard", "Unassigned"].compactMap { z in
+        return ["Back Yard", "Side Yards", "Front Yard"].compactMap { z in
             guard filter == .all || filter.rawValue == z else { return nil }
             return g[z].map { (zone: z, readings: $0.sorted {
                 if $0.zone != $1.zone { return $0.zone < $1.zone }
@@ -121,7 +117,6 @@ private struct ReportScrollView: View {
             .backYard:   (g["Back Yard"]  ?? []).count,
             .sideYards:  (g["Side Yards"] ?? []).count,
             .frontYard:  (g["Front Yard"] ?? []).count,
-            .unassigned: (g["Unassigned"] ?? []).count,
         ]
     }
 
@@ -158,7 +153,7 @@ private struct ReportScrollView: View {
                                 .tracking(1.5)
                                 .foregroundStyle(.secondary)
                             Spacer()
-                            Text("\(group.readings.count) \(group.zone == "Unassigned" ? "sensor" : "plant")\(group.readings.count == 1 ? "" : "s")")
+                            Text("\(group.readings.count) plant\(group.readings.count == 1 ? "" : "s")")
                                 .font(.system(size: 12))
                                 .foregroundStyle(.secondary)
                                 .monospacedDigit()
@@ -233,18 +228,15 @@ private struct InfoSheet: View {
     @State private var lowDraft: Double = 0
     @State private var highDraft: Double = 0
     @State private var notifyOn: Bool = false
-    // Assign-form state (unassigned sensors)
-    @State private var assignName: String = ""
-    @State private var assignSpecies: String = "custom"
     private var plantId: String { "\(reading.zone)-\(reading.channel)" }
-    private var isUnassigned: Bool { reading.status == .unassigned }
+    /// The server's original physical zone (before any local override).
+    private var serverZone: String { reading.customZone ? reading.zone : (reading.physicalZone ?? reading.zone) }
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
                 header
-                if isUnassigned { assignForm }
-                else            { details }
+                details
             }
             .padding(20)
         }
@@ -284,61 +276,39 @@ private struct InfoSheet: View {
         }
     }
 
-    // MARK: assign form (unassigned sensors)
-    private var assignForm: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text("This sensor is connected" + (reading.moisture != nil ? " (reading \(Int(reading.moisture!))%)" : "") + " but not labeled. Name it, pick a plant type, and set its ideal range.")
-                .font(.subheadline).foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-
-            VStack(alignment: .leading, spacing: 6) {
-                Text("LABEL").font(.system(size: 11, weight: .semibold)).tracking(0.6).foregroundStyle(.secondary)
-                TextField("e.g. Tomato Bed, Rose Hedge…", text: $assignName)
-                    .textFieldStyle(.roundedBorder)
-            }
-
-            VStack(alignment: .leading, spacing: 6) {
-                Text("PLANT TYPE").font(.system(size: 11, weight: .semibold)).tracking(0.6).foregroundStyle(.secondary)
-                Picker("Plant type", selection: $assignSpecies) {
-                    Text("Custom / Other").tag("custom")
-                    ForEach(prefs.speciesCatalog) { sp in
-                        Text("\(titleCase(sp.key)) (\(sp.low)–\(sp.high)%)").tag(sp.key)
-                    }
-                }
-                .pickerStyle(.menu)
-                .onChange(of: assignSpecies) { _, key in
-                    if let sp = prefs.preset(key) {
-                        lowDraft = Double(sp.low); highDraft = Double(sp.high)
-                        if assignName.isEmpty { assignName = titleCase(key) }
-                    }
-                }
-            }
-
-            rangeSliders(showCustomBadge: false, resetButton: false)
-
-            Button {
-                if lowDraft >= highDraft { lowDraft = highDraft - 1 }
-                let name = assignName.trimmingCharacters(in: .whitespaces)
-                prefs.setAssignment(plantId,
-                                    name: name.isEmpty ? (assignSpecies == "custom" ? "Unnamed" : titleCase(assignSpecies)) : name,
-                                    species: assignSpecies,
-                                    low: Int(lowDraft), high: Int(highDraft))
-                dismiss()
-            } label: {
-                Text("Save & assign")
-                    .font(.system(size: 15, weight: .semibold))
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 12)
-                    .background(DS.brand, in: RoundedRectangle(cornerRadius: 10))
-                    .foregroundStyle(.white)
-            }
-            .buttonStyle(.plain)
-        }
-    }
-
-    // MARK: details (assigned / known plants)
+    // MARK: details
     private var details: some View {
         VStack(alignment: .leading, spacing: 18) {
+            // Location picker — move the plant between yards.
+            VStack(alignment: .leading, spacing: 8) {
+                HStack {
+                    Text("LOCATION").font(.system(size: 11, weight: .semibold)).tracking(0.6).foregroundStyle(.secondary)
+                    if reading.customZone {
+                        Text("MOVED").font(.system(size: 9, weight: .bold)).tracking(0.5)
+                            .padding(.horizontal, 5).padding(.vertical, 2)
+                            .background(DS.brand.opacity(0.18), in: RoundedRectangle(cornerRadius: 4))
+                            .foregroundStyle(DS.brand)
+                    }
+                }
+                HStack(spacing: 6) {
+                    ForEach(Preferences.zones, id: \.self) { z in
+                        let active = (reading.physicalZone ?? reading.zone) == z
+                        Button {
+                            if z == serverZone { prefs.clearZone(plantId) } else { prefs.setZone(plantId, z) }
+                        } label: {
+                            Text(z)
+                                .font(.system(size: 12.5, weight: .medium))
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 8)
+                                .background(active ? AnyView(RoundedRectangle(cornerRadius: 9).fill(DS.brand))
+                                                   : AnyView(RoundedRectangle(cornerRadius: 9).stroke(.separator)))
+                                .foregroundStyle(active ? Color.white : Color(.label))
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
+
             if let why = reading.ratingExplanation { sec("Why this rating", body: why) }
             if let rec = reading.wateringRecommendation { sec("Suggested watering", body: rec) }
             else if reading.status == .good { sec("Suggested watering", body: "None — in range.") }
@@ -387,11 +357,6 @@ private struct InfoSheet: View {
                 }
                 .font(.caption).foregroundStyle(.secondary)
             }
-
-            if reading.customAssigned {
-                Button("Remove label (back to Unassigned)") { prefs.clearAssignment(plantId); dismiss() }
-                    .font(.caption).foregroundStyle(DS.bad)
-            }
         }
     }
 
@@ -436,7 +401,7 @@ private func titleCase(_ s: String) -> String {
 private struct ZoneFilterRow: View {
     @Binding var filter: ZoneFilter
     let counts: [ZoneFilter: Int]
-    // Hide Front Yard / Unassigned chips when they have no sensors.
+    // Hide the Front Yard chip when it has no plants.
     private var visibleZones: [ZoneFilter] {
         ZoneFilter.allCases.filter { z in
             z == .all || z == .backYard || z == .sideYards || (counts[z] ?? 0) > 0

@@ -10,7 +10,7 @@
      ───────────────────────────────────────────────────────────── */
   const PREF = {
     overrides:   "pw-overrides",        // { "Back Yard-4": {low, high} }
-    assignments: "pw-assignments",      // { "Front Yard-7": {name, species, low, high} }
+    zones:       "pw-zone-overrides",   // { "Back Yard-4": "Front Yard" }
     notifyMode:  "pw-notify-mode",      // "off" | "dry" | "wet" | "both"
     notifyOn:    "pw-notify-plants",    // ["Back Yard-4", ...]
     lastStatus:  "pw-last-status",      // { "Back Yard-4": "good" }
@@ -22,13 +22,12 @@
   const setOverride      = (id, low, high) => { const o = getOverrides(); o[id] = { low, high }; lsWrite(PREF.overrides, o); };
   const clearOverride    = (id) => { const o = getOverrides(); delete o[id]; lsWrite(PREF.overrides, o); };
 
-  const getAssignments   = () => lsRead(PREF.assignments, {});
-  const setAssignment    = (id, a) => { const o = getAssignments(); o[id] = a; lsWrite(PREF.assignments, o); };
-  const clearAssignment  = (id) => { const o = getAssignments(); delete o[id]; lsWrite(PREF.assignments, o); };
+  // Per-plant physical-zone override (move a plant between Back/Side/Front Yard).
+  const getZoneOverrides = () => lsRead(PREF.zones, {});
+  const setZoneOverride  = (id, zone) => { const o = getZoneOverrides(); o[id] = zone; lsWrite(PREF.zones, o); };
+  const clearZoneOverride= (id) => { const o = getZoneOverrides(); delete o[id]; lsWrite(PREF.zones, o); };
 
-  // Species catalog from the API (presets for the assign dropdown).
-  let speciesCatalog = [];
-  const findSpecies = (key) => speciesCatalog.find(s => s.key === key);
+  const ZONES = ["Back Yard", "Side Yards", "Front Yard"];
 
   const getNotifyMode    = () => localStorage.getItem(PREF.notifyMode) || "off";
   const setNotifyMode    = (m) => localStorage.setItem(PREF.notifyMode, m);
@@ -43,75 +42,34 @@
 
   // Apply overrides + recompute status client-side so the rest of the UI
   // and the notification check both see the user's adjusted band.
-  // Compute status/headline/advice for a moisture value against a low/high band.
-  function classify(m, low, high, speciesLabel) {
-    if (m === null) return { status: "no_reading", headline: "No reading", needs_water: false };
-    if (m < low) {
-      const gap = low - m, vd = gap >= 12;
-      return { status: vd ? "very_dry" : "dry", headline: vd ? "VERY DRY" : "Dry", needs_water: true };
-    }
-    if (m > high) return { status: "too_wet", headline: "Too wet", needs_water: false };
-    return { status: "good", headline: "Good", needs_water: false };
-  }
-
   function applyOverrides(readings) {
     const ov = getOverrides();
-    const asg = getAssignments();
+    const zo = getZoneOverrides();
     return readings.map(r => {
       const id = `${r.zone}-${r.channel}`;
+      let out = { ...r, custom_range: false, custom_zone: false };
 
-      // 1) Assigned (previously unassigned) sensor → become a full plant card
-      if (r.status === "unassigned" && asg[id]) {
-        const a = asg[id];
-        const sp = findSpecies(a.species);
-        const c = classify(r.moisture, a.low, a.high, a.species);
-        const adviceBits = r.moisture === null ? "Sensor isn't reporting."
-          : c.status === "good" ? `In range — at ${Math.round(r.moisture)}% you're inside the ideal ${a.low}–${a.high}% band.`
-          : c.status === "too_wet" ? `Hold off — at ${Math.round(r.moisture)}% you're above the ${a.high}% ceiling.`
-          : `Water — at ${Math.round(r.moisture)}% you're below the ${a.low}% floor.`;
-        return {
-          ...r,
-          name: a.name || r.name,
-          species: a.species || "custom",
-          type: a.species || "custom",
-          ideal_low: a.low, ideal_high: a.high,
-          ...c,
-          advice: adviceBits + (sp?.why ? " " + sp.why : ""),
-          species_note: sp?.why || null,
-          source_label: sp?.source_label || null,
-          source_url: sp?.source_url || null,
-          rating_explanation: r.moisture === null ? null
-            : `At ${Math.round(r.moisture)}% against your ${a.low}–${a.high}% band, this reads as ${c.headline.toLowerCase()}.`,
-          custom_assigned: true,
-          custom_range: false,
-        };
+      // Physical-zone override (move a plant between yards)
+      if (zo[id] && zo[id] !== r.physical_zone) {
+        out.physical_zone = zo[id];
+        out.custom_zone = true;
       }
-      // 2) Still unassigned (no local assignment yet)
-      if (r.status === "unassigned") return { ...r, custom_range: false };
 
-      // 3) Range override on a known plant
+      // Range override on a plant → recompute status client-side
       const o = ov[id];
-      if (!o) return { ...r, custom_range: false };
-      const m = r.moisture;
-      if (m === null) return { ...r, custom_range: true, ideal_low: o.low, ideal_high: o.high };
-      let status, headline;
-      if (m < o.low) {
-        const gap = o.low - m;
-        const vd  = gap >= 12;
-        status = vd ? "very_dry" : "dry";
-        headline = vd ? "VERY DRY" : "Dry";
-      } else if (m > o.high) {
-        status = "too_wet"; headline = "Too wet";
-      } else {
-        status = "good";    headline = "Good";
+      if (o) {
+        out.ideal_low = o.low; out.ideal_high = o.high; out.custom_range = true;
+        if (r.moisture !== null) {
+          const m = r.moisture;
+          let status, headline;
+          if (m < o.low) { const vd = (o.low - m) >= 12; status = vd ? "very_dry" : "dry"; headline = vd ? "VERY DRY" : "Dry"; }
+          else if (m > o.high) { status = "too_wet"; headline = "Too wet"; }
+          else { status = "good"; headline = "Good"; }
+          out.status = status; out.headline = headline;
+          out.needs_water = status === "dry" || status === "very_dry";
+        }
       }
-      return {
-        ...r,
-        ideal_low: o.low, ideal_high: o.high,
-        status, headline,
-        needs_water: status === "dry" || status === "very_dry",
-        custom_range: true,
-      };
+      return out;
     });
   }
 
@@ -330,60 +288,31 @@
 
   function renderInfoPanel(r) {
     const id = `${r.zone}-${r.channel}`;
-    // Unassigned (and not yet locally assigned) → show the Assign form.
-    if (r.status === "unassigned") {
-      return `<div class="info-panel">${renderAssignForm(r, id)}</div>`;
-    }
     const sourceLink = (r.source_label && r.source_url)
       ? `<div class="info-source">Source: <a href="${escape(r.source_url)}" target="_blank" rel="noopener">${escape(r.source_label)}</a></div>`
-      : "";
-    const assignedNote = r.custom_assigned
-      ? `<div class="info-section"><button class="link-btn unassign-btn" data-plant-id="${escape(id)}">Remove label (back to Unassigned)</button></div>`
       : "";
     const sections = [
       r.rating_explanation ? `<div class="info-section"><div class="info-label">Why this rating</div><div class="info-text">${escape(r.rating_explanation)}</div></div>` : "",
       r.watering_recommendation ? `<div class="info-section"><div class="info-label">Suggested watering</div><div class="info-text">${escape(r.watering_recommendation)}</div></div>` : "",
-      r.species_note ? `<div class="info-section"><div class="info-label">Why ${escape(r.species)} needs this range</div><div class="info-text">${escape(r.species_note)}</div>${sourceLink}</div>` : "",
+      r.species_note ? `<div class="info-section"><div class="info-label">Why ${escape(r.species || "this plant")} needs this range</div><div class="info-text">${escape(r.species_note)}</div>${sourceLink}</div>` : "",
+      renderZonePicker(r, id),
       renderRangeEditor(r, id),
       renderNotifyToggle(r, id),
-      assignedNote,
     ].filter(Boolean).join("");
     return `<div class="info-panel">${sections}</div>`;
   }
 
-  // Form to label + configure an unassigned sensor.
-  function renderAssignForm(r, id) {
-    const opts = speciesCatalog.map(s =>
-      `<option value="${escape(s.key)}" data-low="${s.low}" data-high="${s.high}">${escape(titleCase(s.key))} (${s.low}–${s.high}%)</option>`
+  // Lets the user move a plant between Back Yard / Side Yards / Front Yard.
+  function renderZonePicker(r, id) {
+    const current = r.physical_zone || r.zone;
+    const moved = r.custom_zone
+      ? `<span class="custom-badge">Moved</span>` : "";
+    const buttons = ZONES.map(z =>
+      `<button class="zone-pick${z === current ? " zone-pick--active" : ""}" data-plant-id="${escape(id)}" data-zone="${escape(z)}">${escape(z)}</button>`
     ).join("");
-    return `<div class="assign-form" data-plant-id="${escape(id)}">
-      <div class="info-section">
-        <div class="info-label">Label this sensor</div>
-        <input type="text" class="assign-name text-input" placeholder="e.g. Tomato Bed, Rose Hedge…" />
-      </div>
-      <div class="info-section">
-        <div class="info-label">Plant type (sets the ideal range)</div>
-        <select class="assign-species select-input">
-          <option value="custom" data-low="30" data-high="50">Custom / Other</option>
-          ${opts}
-        </select>
-      </div>
-      <div class="info-section">
-        <div class="info-label">Ideal range</div>
-        <div class="range-editor">
-          <div class="range-row">
-            <label>Low</label>
-            <input type="range" min="5" max="80" value="30" class="range-input assign-low" />
-            <span class="range-val assign-low-val">30%</span>
-          </div>
-          <div class="range-row">
-            <label>High</label>
-            <input type="range" min="20" max="95" value="50" class="range-input assign-high" />
-            <span class="range-val assign-high-val">50%</span>
-          </div>
-        </div>
-      </div>
-      <button class="assign-save-btn">Save & assign</button>
+    return `<div class="info-section">
+      <div class="info-label">Location ${moved}</div>
+      <div class="zone-picker">${buttons}</div>
     </div>`;
   }
 
@@ -435,8 +364,7 @@
   function groupByPhysicalZone(readings) {
     const zones = {};
     for (const r of readings) {
-      // Unassigned sensors get their own group regardless of gateway.
-      const z = r.status === "unassigned" ? "Unassigned" : (r.physical_zone || r.zone || "Other");
+      const z = r.physical_zone || r.zone || "Other";
       (zones[z] ??= []).push(r);
     }
     for (const k in zones) {
@@ -472,7 +400,6 @@
     for (const z of ["Back Yard", "Side Yards", "Front Yard"]) {
       if (zones[z]?.length) chips += chip(z, z, zones[z].length);
     }
-    if (zones["Unassigned"]?.length) chips += chip("Unassigned", "Unassigned", zones["Unassigned"].length);
     return `<div class="filter-row">
       <div class="filter-chips">${chips}</div>
       <div class="layout-toggle" role="group" aria-label="Layout">
@@ -485,7 +412,7 @@
   function renderReport(data) {
     const main = $("main");
     const zones = groupByPhysicalZone(data.readings);
-    const order = ["Back Yard", "Side Yards", "Front Yard", "Unassigned"];
+    const order = ["Back Yard", "Side Yards", "Front Yard"];
 
     let html = renderHero(data) + renderFilterChips(zones);
 
@@ -493,7 +420,7 @@
       if (!zones[z]) continue;
       if (zoneFilter !== "all" && zoneFilter !== z) continue;
       const cnt = zones[z].length;
-      const noun = z === "Unassigned" ? "sensor" : "plant";
+      const noun = "plant";
       html += `
         <section class="zone">
           <div class="zone-head">
@@ -562,41 +489,16 @@
       });
     });
 
-    // Assign form for unassigned sensors
-    main.querySelectorAll(".assign-form").forEach(form => {
-      const id      = form.dataset.plantId;
-      const nameEl  = form.querySelector(".assign-name");
-      const spEl    = form.querySelector(".assign-species");
-      const lowEl   = form.querySelector(".assign-low");
-      const highEl  = form.querySelector(".assign-high");
-      const lowVal  = form.querySelector(".assign-low-val");
-      const highVal = form.querySelector(".assign-high-val");
-      const syncVals = () => {
-        let lo = +lowEl.value, hi = +highEl.value;
-        if (lo >= hi) { lo = hi - 1; lowEl.value = lo; }
-        lowVal.textContent = lo + "%"; highVal.textContent = hi + "%";
-      };
-      // Selecting a species prefills its range
-      spEl.addEventListener("change", () => {
-        const opt = spEl.selectedOptions[0];
-        if (opt?.dataset.low) { lowEl.value = opt.dataset.low; highEl.value = opt.dataset.high; syncVals(); }
-        if (!nameEl.value && spEl.value !== "custom") nameEl.value = titleCase(spEl.value);
-      });
-      lowEl.addEventListener("input", syncVals);
-      highEl.addEventListener("input", syncVals);
-      form.querySelector(".assign-save-btn").addEventListener("click", () => {
-        const species = spEl.value;
-        const name = nameEl.value.trim() || (species !== "custom" ? titleCase(species) : "Unnamed");
-        setAssignment(id, { name, species, low: +lowEl.value, high: +highEl.value });
-        openInfo.delete(id);   // collapse after saving
-        fetchAndRender();
-      });
-    });
-
-    // Unassign (remove a local label)
-    main.querySelectorAll(".unassign-btn").forEach(b => {
+    // Zone picker — move a plant between Back/Side/Front Yard
+    main.querySelectorAll(".zone-pick").forEach(b => {
       b.addEventListener("click", () => {
-        clearAssignment(b.dataset.plantId);
+        const id = b.dataset.plantId, zone = b.dataset.zone;
+        // Server's original physical zone for this plant
+        const srv = (rawReadings || []).find(x => `${x.zone}-${x.channel}` === id);
+        const serverZone = srv?.physical_zone || srv?.zone;
+        // Picking the server default clears the override; otherwise set it.
+        if (zone === serverZone) clearZoneOverride(id);
+        else setZoneOverride(id, zone);
         fetchAndRender();
       });
     });

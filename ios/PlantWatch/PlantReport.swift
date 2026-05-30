@@ -15,11 +15,10 @@ struct PlantReport: Decodable {
         case speciesCatalog = "species_catalog"
     }
 
-    /// Apply user overrides + assignments and recompute counts.
+    /// Apply user overrides (range + zone) and recompute counts.
     @MainActor
     func applying(_ prefs: Preferences) -> PlantReport {
         var copy = self
-        if let cat = speciesCatalog { prefs.speciesCatalog = cat }
         copy.readings = readings.map { prefs.applyOverride($0) }
         copy.counts = Counts(
             needsWater: copy.readings.filter { $0.needsWater }.count,
@@ -116,7 +115,7 @@ struct Reading: Decodable, Identifiable {
     let zone:                  String     // gateway name (Back Yard / Side Yards)
     let channel:               Int
     let displayOrder:          Int?
-    let physicalZone:          String?    // physical location (Back Yard / Front Yard)
+    var physicalZone:          String?    // physical location — mutable for local zone override
     let physicalZoneVerified:  Bool?
     var name:                  String
     let type:                  String
@@ -144,8 +143,8 @@ struct Reading: Decodable, Identifiable {
     let wateringTargetPct:      Int?
     /// True if the user has set a custom range overriding the species default.
     var customRange:            Bool = false
-    /// True if the user has labeled a previously-unassigned sensor.
-    var customAssigned:         Bool = false
+    /// True if the user has moved this plant to a different physical zone.
+    var customZone:             Bool = false
 
     enum CodingKeys: String, CodingKey {
         case zone, channel, name, type, species, verified, pair, moisture, battery, status, headline, advice

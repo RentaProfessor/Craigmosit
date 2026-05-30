@@ -1,4 +1,4 @@
-// PlantWatch edge function v19 — 3 gateways (Back/Side/Front Yard) + unassigned sensors.
+// PlantWatch edge function v20 — 3 gateways (Back/Side/Front Yard). Unassigned sensors hidden.
 //
 // Design after user feedback:
 //   • NO predictive / weather-adjusted ranges
@@ -309,41 +309,13 @@ Deno.serve(async (req) => {
     });
 
 
-    // ── Unassigned sensors: any active soil channel not in PLANTS and not retired.
-    const known = new Set(PLANTS.map(p => `${p.zone}-${p.ch}`));
-    for (const [zoneName, data] of Object.entries(zones)) {
-      for (const key of Object.keys(data || {})) {
-        const mm = key.match(/^soil_ch(\d+)$/);
-        if (!mm) continue;
-        const ch = parseInt(mm[1], 10);
-        const id = `${zoneName}-${ch}`;
-        if (known.has(id) || RETIRED.has(id)) continue;
-        const node = data[key];
-        const moisture = (node?.soilmoisture?.value != null) ? num(node.soilmoisture.value) : null;
-        const batNode = data.battery?.["soilmoisture_sensor_ch"+ch];
-        const battery = batNode ? num(batNode.value) : null;
-        readings.push({
-          zone: zoneName, channel: ch, display_order: 900 + ch,
-          physical_zone: GATEWAY_PHYSICAL[zoneName] || zoneName, physical_zone_verified: true,
-          name: `Unassigned CH${ch}`, species: null, type: "unassigned", verified: false,
-          pair: null, pair_role: null,
-          ideal_low: null, ideal_high: null,
-          moisture, battery,
-          status: "unassigned", headline: "Unassigned",
-          advice: "Connected but not labeled yet. Tap \u24D8 to name it, pick a plant type, and set its ideal moisture range.",
-          species_note: null, source_label: null, source_url: null, needs_water: false,
-          rating_explanation: null, watering_recommendation: null, watering_target_pct: null,
-        });
-      }
-    }
 
-    const counts = {needs_water:0,too_wet:0,good:0,missing:0,unassigned:0};
+    const counts = {needs_water:0,too_wet:0,good:0,missing:0};
     for (const r of readings) {
       if (r.needs_water) counts.needs_water++;
       else if (r.status==="too_wet") counts.too_wet++;
       else if (r.status==="good") counts.good++;
       else if (r.status==="no_reading") counts.missing++;
-      else if (r.status==="unassigned") counts.unassigned++;
     }
 
     if (getEnv("LOG_HISTORY")==="true" && getEnv("SUPABASE_URL") && getEnv("SUPABASE_SERVICE_ROLE_KEY")) {
