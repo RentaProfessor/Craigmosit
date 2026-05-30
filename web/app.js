@@ -751,10 +751,18 @@
             Per-plant toggles live in each plant's info panel (tap the ⓘ on a card).
             Alerts fire when the dashboard is open or recently active.
           </div>
+          ${window.PW_AUTH && window.PW_AUTH.isAuthed() ? `
+          <div class="modal-divider"></div>
+          <div class="account-row">
+            <div class="account-email">${escape(window.PW_AUTH.email() || "")}</div>
+            <button class="link-btn signout-btn">Sign out</button>
+          </div>` : ""}
         </div>
       </div>`;
     document.body.appendChild(wrap);
     const close = () => wrap.remove();
+    const soBtn = wrap.querySelector(".signout-btn");
+    if (soBtn) soBtn.addEventListener("click", () => window.PW_AUTH.signOut());
     wrap.querySelector(".modal-close").addEventListener("click", close);
     wrap.addEventListener("click", (e) => { if (e.target === wrap) close(); });
     wrap.querySelectorAll('input[name="notify-mode"]').forEach(r => {
@@ -835,14 +843,22 @@
     btn.disabled = true;
     $("meta").textContent = "Fetching the latest readings…";
     try {
+      // Authenticated request — attach the signed-in user's token.
+      const token = window.PW_AUTH ? await window.PW_AUTH.getAccessToken() : null;
       const headers = { Accept: "application/json" };
-      if (cfg.anonKey) {
-        headers.apikey = cfg.anonKey;
-        headers.Authorization = `Bearer ${cfg.anonKey}`;
-      }
+      if (cfg.supabaseAnonKey) headers.apikey = cfg.supabaseAnonKey;
+      if (token) headers.Authorization = `Bearer ${token}`;
+      else if (cfg.anonKey) { headers.apikey = cfg.anonKey; headers.Authorization = `Bearer ${cfg.anonKey}`; }
       const r = await fetch(ep, { headers, cache: "no-store" });
+      if (r.status === 401) { window.PW_AUTH && window.PW_AUTH.signOut(); return; }
       if (!r.ok) throw new Error(`Backend returned HTTP ${r.status}`);
       const data = await r.json();
+      // New user with no sensors yet → run the setup flow, then reload.
+      if (data.needs_onboarding) {
+        btn.dataset.spinning = "false"; btn.disabled = false;
+        window.PW_AUTH.showOnboarding(() => load());
+        return;
+      }
       if (data.error) throw new Error(data.error);
       if (Array.isArray(data.species_catalog)) speciesCatalog = data.species_catalog;
       // Keep a pristine copy of server readings, then apply local prefs.
@@ -899,6 +915,11 @@
     if (lastData) $("meta").textContent = `Updated ${relTime(lastData.generated_at)}`;
   }, 30_000);
 
-  load();
-  startAutoRefresh();
+  // Gate the dashboard on auth: show login if needed, then load + auto-refresh.
+  if (window.PW_AUTH) {
+    window.PW_AUTH.start(() => { load(); startAutoRefresh(); });
+  } else {
+    load();
+    startAutoRefresh();
+  }
 })();
