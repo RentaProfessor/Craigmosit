@@ -566,15 +566,16 @@
     renderReport(lastData);
   }
 
-  /* ── Drag-to-reorder (pointer events; works on touch + mouse) ─────────── */
+  /* ── Drag-to-reorder + cross-section move (pointer events) ────────────── */
   let drag = null;
+  const homeZone = (id) => id.slice(0, id.lastIndexOf("-"));   // "Back Yard-4" → "Back Yard"
+
   function startDrag(e) {
     const handle = e.currentTarget;
     const card = handle.closest(".card");
-    const grid = card?.closest(".grid");
-    if (!card || !grid) return;
+    if (!card) return;
     e.preventDefault();
-    drag = { card, grid, zone: grid.dataset.zone, pointerId: e.pointerId };
+    drag = { card, handle, pointerId: e.pointerId };
     try { handle.setPointerCapture(e.pointerId); } catch (_) {}
     card.classList.add("dragging");
     document.body.classList.add("reordering");
@@ -585,25 +586,42 @@
   function onDragMove(e) {
     if (!drag) return;
     e.preventDefault();
-    // Find the card under the pointer within the same grid
     const under = document.elementFromPoint(e.clientX, e.clientY);
-    const target = under && under.closest(".card");
-    if (!target || target === drag.card || target.parentElement !== drag.grid) return;
-    // Insert dragged card before or after the target based on pointer position
-    const rect = target.getBoundingClientRect();
-    const after = (e.clientY - rect.top) > rect.height / 2;
-    drag.grid.insertBefore(drag.card, after ? target.nextSibling : target);
+    if (!under) return;
+    const target = under.closest(".card");
+    if (target && target !== drag.card) {
+      const grid = target.parentElement;            // a .grid (any section)
+      if (grid && grid.classList.contains("grid")) {
+        const rect = target.getBoundingClientRect();
+        const after = (e.clientY - rect.top) > rect.height / 2;
+        grid.insertBefore(drag.card, after ? target.nextSibling : target);
+      }
+    } else {
+      // Hovering an empty part of a grid → append into that grid (enables
+      // moving into a different section even past its last card).
+      const grid = under.closest(".grid");
+      if (grid && grid.classList.contains("grid") && drag.card.parentElement !== grid) {
+        grid.appendChild(drag.card);
+      }
+    }
   }
-  function endDrag(e) {
+  function endDrag() {
     if (!drag) return;
-    const { grid, zone, card } = drag;
+    const card = drag.card;
+    const grid = card.parentElement;
     card.classList.remove("dragging");
     document.body.classList.remove("reordering");
-    // Persist new order of ids in this grid
-    const ids = Array.from(grid.querySelectorAll(".card")).map(c => c.dataset.id);
-    setOrder(zone, ids);
+    if (grid && grid.classList.contains("grid")) {
+      const zone = grid.dataset.zone;
+      const id = card.dataset.id;
+      // Moved to a different section → set/clear the zone override.
+      if (zone === homeZone(id)) clearZoneOverride(id);
+      else setZoneOverride(id, zone);
+      // Persist the order within the destination section.
+      const ids = Array.from(grid.querySelectorAll(".card")).map(c => c.dataset.id);
+      setOrder(zone, ids);
+    }
     drag = null;
-    // Re-render so the rest of state (counts, info panels) stays consistent
     fetchAndRender();
   }
 

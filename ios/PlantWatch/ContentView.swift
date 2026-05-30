@@ -206,7 +206,7 @@ private struct ReportScrollView: View {
             }
             .dropDestination(for: String.self) { items, _ in
                 guard let dragged = items.first, dragged != r.id else { return false }
-                prefs.reorder(zone: zone, dragged: dragged, target: r.id, currentOrder: ids)
+                prefs.dropOnCard(dragged: dragged, targetZone: zone, target: r.id, targetZoneIds: ids)
                 return true
             }
     }
@@ -252,8 +252,8 @@ private struct InfoSheet: View {
     @State private var highDraft: Double = 0
     @State private var notifyOn: Bool = false
     private var plantId: String { "\(reading.zone)-\(reading.channel)" }
-    /// The server's original physical zone (before any local override).
-    private var serverZone: String { reading.customZone ? reading.zone : (reading.physicalZone ?? reading.zone) }
+    /// The plant's home (gateway) zone — what clearing the override reverts to.
+    private var serverZone: String { reading.zone }
 
     var body: some View {
         ScrollView {
@@ -303,10 +303,12 @@ private struct InfoSheet: View {
     private var details: some View {
         VStack(alignment: .leading, spacing: 18) {
             // Location picker — move the plant between yards.
+            // Read the CURRENT zone live from prefs so the highlight updates on tap.
+            let currentZone = prefs.zoneOverrides[plantId] ?? serverZone
             VStack(alignment: .leading, spacing: 8) {
                 HStack {
                     Text("LOCATION").font(.system(size: 11, weight: .semibold)).tracking(0.6).foregroundStyle(.secondary)
-                    if reading.customZone {
+                    if prefs.zoneOverrides[plantId] != nil {
                         Text("MOVED").font(.system(size: 9, weight: .bold)).tracking(0.5)
                             .padding(.horizontal, 5).padding(.vertical, 2)
                             .background(DS.brand.opacity(0.18), in: RoundedRectangle(cornerRadius: 4))
@@ -315,7 +317,7 @@ private struct InfoSheet: View {
                 }
                 HStack(spacing: 6) {
                     ForEach(Preferences.zones, id: \.self) { z in
-                        let active = (reading.physicalZone ?? reading.zone) == z
+                        let active = currentZone == z
                         Button {
                             if z == serverZone { prefs.clearZone(plantId) } else { prefs.setZone(plantId, z) }
                         } label: {

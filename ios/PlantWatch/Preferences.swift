@@ -87,14 +87,27 @@ final class Preferences: ObservableObject {
         guard let arr = zoneOrder[zone], let i = arr.firstIndex(of: id) else { return Int.max }
         return i
     }
-    /// Move `dragged` to where `target` is, within the given displayed id order.
-    func reorder(zone: String, dragged: String, target: String, currentOrder: [String]) {
-        var ids = currentOrder
-        guard let from = ids.firstIndex(of: dragged), let to = ids.firstIndex(of: target), from != to else { return }
-        ids.remove(at: from)
-        let insertAt = ids.firstIndex(of: target) ?? ids.count
-        ids.insert(dragged, at: from < to ? insertAt + 1 : insertAt)
-        zoneOrder[zone] = ids
+
+    /// Home (gateway) zone for a plant id like "Back Yard-4".
+    private func homeZone(_ id: String) -> String {
+        if let r = id.range(of: "-", options: .backwards) { return String(id[..<r.lowerBound]) }
+        return id
+    }
+
+    /// Drop `dragged` onto `target` (which lives in `targetZone`). Handles both
+    /// in-section reorder and cross-section move (sets/clears the zone override).
+    func dropOnCard(dragged: String, targetZone: String, target: String, targetZoneIds: [String]) {
+        guard dragged != target else { return }
+        // Cross-section move → set/clear zone override.
+        if targetZone == homeZone(dragged) { zoneOverrides.removeValue(forKey: dragged) }
+        else { zoneOverrides[dragged] = targetZone }
+        saveZones()
+        // Drop `dragged` out of every existing order list…
+        for (z, var arr) in zoneOrder { arr.removeAll { $0 == dragged }; zoneOrder[z] = arr }
+        // …and place it right before `target` in the destination order.
+        var ids = targetZoneIds.filter { $0 != dragged }
+        if let ti = ids.firstIndex(of: target) { ids.insert(dragged, at: ti) } else { ids.append(dragged) }
+        zoneOrder[targetZone] = ids
         saveOrder()
     }
     func setNotifyOn(_ id: String, _ on: Bool) {
