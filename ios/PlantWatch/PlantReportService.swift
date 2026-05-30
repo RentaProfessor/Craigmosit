@@ -7,6 +7,8 @@ final class PlantReportService: ObservableObject {
     @Published private(set) var error:   String?
     @Published private(set) var loading: Bool = false
     @Published private(set) var lastLoaded: Date?
+    /// True when the signed-in user has no sensors configured yet.
+    @Published private(set) var needsOnboarding = false
 
     private var refreshTask: Task<Void, Never>?
 
@@ -14,31 +16,35 @@ final class PlantReportService: ObservableObject {
         if !silent { loading = true }
         defer { loading = false }
         do {
+            guard let token = await Auth.shared.accessToken() else { Auth.shared.signOut(); return }
             var req = URLRequest(url: Config.endpoint)
             req.cachePolicy = .reloadIgnoringLocalCacheData
-            if let key = Config.anonKey {
-                req.setValue(key, forHTTPHeaderField: "apikey")
-                req.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
-            }
+            req.setValue(Config.supabaseAnonKey, forHTTPHeaderField: "apikey")
+            req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
             let (data, resp) = try await URLSession.shared.data(for: req)
-            guard let http = resp as? HTTPURLResponse, http.statusCode == 200 else {
-                throw URLError(.badServerResponse)
+            let status = (resp as? HTTPURLResponse)?.statusCode ?? 500
+            if status == 401 { Auth.shared.signOut(); return }
+            guard status == 200 else { throw URLError(.badServerResponse) }
+
+            // New user with no plants yet.
+            if let probe = try? JSONDecoder().decode(OnboardProbe.self, from: data), probe.needs_onboarding == true {
+                self.needsOnboarding = true; self.error = nil; return
             }
             let decoder = JSONDecoder()
             decoder.dateDecodingStrategy = .iso8601
             let parsed = try decoder.decode(PlantReport.self, from: data)
-            // Store the RAW report; prefs (range/zone/order) are applied in the
-            // view layer so edits reflect instantly without a reload.
             self.report = parsed
             self.error = nil
             self.lastLoaded = Date()
-            // Notifications evaluate against the prefs-applied snapshot.
+            self.needsOnboarding = false
             Preferences.shared.notifyIfChanged(parsed.applying(Preferences.shared).readings)
         } catch {
             self.error = humanize(error)
             if self.report == nil { /* preserve previous data on transient failures */ }
         }
     }
+
+    private struct OnboardProbe: Decodable { let needs_onboarding: Bool? }
 
     func startAutoRefresh() {
         refreshTask?.cancel()

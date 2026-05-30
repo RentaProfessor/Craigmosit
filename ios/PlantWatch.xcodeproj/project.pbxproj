@@ -17,6 +17,8 @@
 		BF0000000000000000000008 /* PlantCardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FR0000000000000000000008 /* PlantCardView.swift */; };
 		BF0000000000000000000009 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = FR0000000000000000000009 /* Assets.xcassets */; };
 		BF000000000000000000000B /* Preferences.swift in Sources */ = {isa = PBXBuildFile; fileRef = FR000000000000000000000B /* Preferences.swift */; };
+		BF000000000000000000000C /* Auth.swift in Sources */ = {isa = PBXBuildFile; fileRef = FR000000000000000000000C /* Auth.swift */; };
+		BF000000000000000000000D /* LoginView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FR000000000000000000000D /* LoginView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -32,6 +34,8 @@
 		FR000000000000000000000A /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		FR0000000000000000000010 /* PlantWatch.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = PlantWatch.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		FR000000000000000000000B /* Preferences.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Preferences.swift; sourceTree = "<group>"; };
+		FR000000000000000000000C /* Auth.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Auth.swift; sourceTree = "<group>"; };
+		FR000000000000000000000D /* LoginView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LoginView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -63,6 +67,7 @@
 				FR0000000000000000000005 /* PlantReport.swift */,
 				FR0000000000000000000006 /* PlantReportService.swift */,
 				FR000000000000000000000B /* Preferences.swift */,
+				FR000000000000000000000C /* Auth.swift */,
 				GR0000000000000000000004 /* Views */,
 				FR0000000000000000000009 /* Assets.xcassets */,
 				FR000000000000000000000A /* Info.plist */,
@@ -83,6 +88,7 @@
 			children = (
 				FR0000000000000000000007 /* HeroCardView.swift */,
 				FR0000000000000000000008 /* PlantCardView.swift */,
+				FR000000000000000000000D /* LoginView.swift */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -165,6 +171,8 @@
 				BF0000000000000000000007 /* HeroCardView.swift in Sources */,
 				BF0000000000000000000008 /* PlantCardView.swift in Sources */,
 				BF000000000000000000000B /* Preferences.swift in Sources */,
+				BF000000000000000000000C /* Auth.swift in Sources */,
+				BF000000000000000000000D /* LoginView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

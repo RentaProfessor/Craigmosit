@@ -35,7 +35,9 @@ struct ContentView: View {
                 Color(.systemGroupedBackground).ignoresSafeArea()
 
                 Group {
-                    if let raw = svc.report {
+                    if svc.needsOnboarding {
+                        OnboardingNeededView()
+                    } else if let raw = svc.report {
                         // Apply local prefs (range / zone) in the view so edits reflect instantly.
                         let report = raw.applying(prefs)
                         ReportScrollView(
@@ -637,6 +639,14 @@ private struct SettingsSheet: View {
                 } footer: {
                     Text("Per-plant toggles live in each plant's info panel — tap the ⓘ on a card. Alerts fire when the app is open or recently active.")
                 }
+                Section("Account") {
+                    if let e = Auth.shared.email {
+                        HStack { Text("Signed in as"); Spacer(); Text(e).foregroundStyle(.secondary) }
+                    }
+                    Button(role: .destructive) { Auth.shared.signOut(); dismiss() } label: {
+                        Text("Sign out")
+                    }
+                }
             }
             .navigationTitle("Notifications")
             .navigationBarTitleDisplayMode(.inline)
@@ -662,6 +672,30 @@ private struct SettingsSheet: View {
     @MainActor
     private func refreshAuth() async {
         authStatus = await UNUserNotificationCenter.current().notificationSettings().authorizationStatus
+    }
+}
+
+/// Shown when a signed-in user has no sensors configured yet (new account).
+/// Full in-app setup is provided by the installer / web onboarding for now.
+private struct OnboardingNeededView: View {
+    var body: some View {
+        VStack(spacing: 16) {
+            Image(systemName: "leaf.circle")
+                .font(.system(size: 44))
+                .foregroundStyle(DS.brand)
+            Text("No sensors yet")
+                .font(.title3.bold())
+            Text("Your garden isn't set up on this account. Your installer will connect your Ecowitt sensors, or finish setup from the web dashboard.")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 36)
+            Button("Sign out") { Auth.shared.signOut() }
+                .font(.subheadline)
+                .foregroundStyle(DS.brandLight)
+                .padding(.top, 4)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
 

@@ -1,16 +1,12 @@
 import Foundation
 
 /// Backend configuration for the PlantWatch iOS client.
-///
-/// The app talks to the Supabase edge function — never to Ecowitt directly,
-/// so no API keys are ever shipped inside the app bundle.
 enum Config {
-    /// Full URL to the deployed `plant-report` edge function.
-    static let endpoint = URL(string: "https://naaqvzbezcqamhqqnotx.supabase.co/functions/v1/plant-report")!
+    static let supabaseUrl = "https://naaqvzbezcqamhqqnotx.supabase.co"
+    static let supabaseAnonKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5hYXF2emJlemNxYW1ocXFub3R4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk3NDQ2MzksImV4cCI6MjA5NTMyMDYzOX0.T3dkVfOR09GunHSL1l2BhaQHRX9icS56e29OiiqvI24"
 
-    /// Supabase anon key. Not required — the function is deployed with
-    /// `verify_jwt = false` (single trusted audience per spec).
-    static let anonKey: String? = nil
+    /// Authenticated per-user report (requires sign-in).
+    static let endpoint = URL(string: "\(supabaseUrl)/functions/v1/report-v2")!
 
     /// Auto-refresh while the app is foregrounded.
     static let autoRefreshInterval: TimeInterval = 60
